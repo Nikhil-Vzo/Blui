@@ -2,7 +2,7 @@
 
 <img src="assets/banner.png" alt="Blui: Fast. Deterministic. Replayable. Built for Java." width="100%" />
 
-# ⚡ blui
+# 🐈 blui
 
 **The High-Performance AI Agent Runtime & Safety Harness, Built in Pure Java 24.**
 
