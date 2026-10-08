@@ -10,6 +10,6 @@ public interface Tool {
 	ToolResults execute(String input) throws Exception;
 	default String name()
 	{
-	  return getClass().getSimpleName()
+	  return getClass().getSimpleName();
      }
 }
