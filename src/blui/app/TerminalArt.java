@@ -8,10 +8,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Pure Java ANSI 24-bit Truecolor terminal image renderer using half-block characters (▀).
- * Allows rendering high-resolution pixel art in modern terminals with zero external dependencies.
- */
+
 public final class TerminalArt {
 
     private TerminalArt() {}
@@ -50,14 +47,20 @@ public final class TerminalArt {
             height -= height % 2;
         }
 
-        BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+        BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
         Graphics2D g = image.createGraphics();
-        g.setColor(new Color(8, 9, 12));
-        g.fillRect(0, 0, width, height);
 
         g.setRenderingHint(
                 RenderingHints.KEY_INTERPOLATION,
-                RenderingHints.VALUE_INTERPOLATION_BICUBIC
+                RenderingHints.VALUE_INTERPOLATION_BILINEAR
+        );
+        g.setRenderingHint(
+                RenderingHints.KEY_RENDERING,
+                RenderingHints.VALUE_RENDER_QUALITY
+        );
+        g.setRenderingHint(
+                RenderingHints.KEY_COLOR_RENDERING,
+                RenderingHints.VALUE_COLOR_RENDER_QUALITY
         );
         g.drawImage(source, 0, 0, width, height, null);
         g.dispose();
@@ -67,20 +70,38 @@ public final class TerminalArt {
         for (int y = 0; y < height; y += 2) {
             StringBuilder line = new StringBuilder();
             for (int x = 0; x < width; x++) {
-                Color top = new Color(image.getRGB(x, y));
-                Color bottom = new Color(image.getRGB(x, y + 1));
+                int rgbTop = image.getRGB(x, y);
+                int rgbBot = image.getRGB(x, y + 1);
 
-                line.append("\033[38;2;")
-                    .append(top.getRed()).append(';')
-                    .append(top.getGreen()).append(';')
-                    .append(top.getBlue()).append('m');
+                int alphaTop = (rgbTop >> 24) & 0xFF;
+                int alphaBot = (rgbBot >> 24) & 0xFF;
 
-                line.append("\033[48;2;")
-                    .append(bottom.getRed()).append(';')
-                    .append(bottom.getGreen()).append(';')
-                    .append(bottom.getBlue()).append('m');
-
-                line.append('\u2580'); // ▀ half block
+                if (alphaTop < 30 && alphaBot < 30) {
+                    line.append("\033[0m ");
+                } else if (alphaTop >= 30 && alphaBot < 30) {
+                    Color top = new Color(rgbTop, false);
+                    line.append("\033[38;2;")
+                        .append(top.getRed()).append(';')
+                        .append(top.getGreen()).append(';')
+                        .append(top.getBlue()).append("m\033[49m\u2580");
+                } else if (alphaTop < 30 && alphaBot >= 30) {
+                    Color bot = new Color(rgbBot, false);
+                    line.append("\033[38;2;")
+                        .append(bot.getRed()).append(';')
+                        .append(bot.getGreen()).append(';')
+                        .append(bot.getBlue()).append("m\033[49m\u2584");
+                } else {
+                    Color top = new Color(rgbTop, false);
+                    Color bot = new Color(rgbBot, false);
+                    line.append("\033[38;2;")
+                        .append(top.getRed()).append(';')
+                        .append(top.getGreen()).append(';')
+                        .append(top.getBlue()).append('m')
+                        .append("\033[48;2;")
+                        .append(bot.getRed()).append(';')
+                        .append(bot.getGreen()).append(';')
+                        .append(bot.getBlue()).append("m\u2580");
+                }
             }
             line.append("\033[0m");
             lines.add(line.toString());

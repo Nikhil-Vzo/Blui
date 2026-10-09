@@ -36,18 +36,27 @@ public class BluiCli {
     private static final String WHITE = "\033[38;2;248;250;252m";
 
     public static void main(String[] args) {
+        initConsole();
         printBanner();
         printStatusCards();
         startRepl();
     }
 
+    private static void initConsole() {
+        if (System.getProperty("os.name", "").toLowerCase().contains("win")) {
+            try {
+                new ProcessBuilder("cmd", "/c", "chcp 65001 > nul").inheritIO().start().waitFor();
+            } catch (Exception ignored) {}
+        }
+    }
+
     public static void printBanner() {
         List<String> imageLines = new ArrayList<>();
         try {
-            imageLines = TerminalArt.renderLines("assets/blui.png", 46, 17);
+            imageLines = TerminalArt.renderLines("assets/blui.png", 46, 16);
         } catch (IOException e) {
             // Fallback placeholder if image not found
-            for (int i = 0; i < 18; i++) {
+            for (int i = 0; i < 16; i++) {
                 imageLines.add(" ".repeat(46));
             }
         }
@@ -72,81 +81,88 @@ public class BluiCli {
     private static List<String> buildRightSideHeader() {
         List<String> lines = new ArrayList<>();
 
-        // ASCII Large Title (Pixel Font)
-        lines.add(CYAN + BOLD + " █     █         " + RESET);
-        lines.add(CYAN + BOLD + " █▀█ █ █ █ █ █   " + RESET);
-        lines.add(CYAN + BOLD + " █▀▄ █ █ █ █ █   " + RESET);
-        lines.add(CYAN + BOLD + " ▀▀▀ ▀ ▀ ▀ ▀▀▀   " + RESET);
+        // ASCII Title (Clean lowercase blui)
+        lines.add(CYAN + BOLD + " █   █          " + RESET);
+        lines.add(CYAN + BOLD + " █▀▄ █ █ █ ▄    " + RESET);
+        lines.add(CYAN + BOLD + " █ █ █ █ █ █    " + RESET);
+        lines.add(CYAN + BOLD + " ▀▀▀ ▀  ▀▀ ▀    " + RESET);
         lines.add(DIM + GRAY + " AI AGENT RUNTIME & SAFETY HARNESS" + RESET);
         lines.add("");
 
-        // Specs Split
-        lines.add(WHITE + " ● Fast.                 " + DIM + "│" + RESET + " v0.1.0");
-        lines.add(GRAY + "   Deterministic.        " + DIM + "│" + RESET + DIM + " ZERO DEPENDENCIES" + RESET);
-        lines.add(WHITE + " ● Replayable.           " + DIM + "│" + RESET + DIM + " VIRTUAL THREADS" + RESET);
-        lines.add(GRAY + "   Native Java 24.       " + DIM + "│" + RESET + DIM + " SAFETY GOVERNOR" + RESET);
-        lines.add("                         " + DIM + "│" + RESET + DIM + " TIME-TRAVEL REPLAY" + RESET);
         lines.add(DIM + " ──────────────────────────────────────────────────" + RESET);
-
-        // Get Started Commands
-        lines.add(BOLD + WHITE + " GET STARTED" + RESET);
-        lines.add(CYAN + " blui run " + GRAY + "<task>          " + DIM + "# run an autonomous agent" + RESET);
-        lines.add(CYAN + " blui bench                " + DIM + "# benchmark 500 virtual threads" + RESET);
-        lines.add(CYAN + " blui replay " + GRAY + "<trace-id>   " + DIM + "# replay a previous run" + RESET);
-        lines.add(CYAN + " blui help                 " + DIM + "# show all commands" + RESET);
+        lines.add(BOLD + WHITE + " COMMANDS" + RESET);
+        lines.add(CYAN + " blui run " + GRAY + "<goal>          " + DIM + "# execute agent loop" + RESET);
+        lines.add(CYAN + " blui bench                " + DIM + "# spawn 500 virtual threads" + RESET);
+        lines.add(CYAN + " blui status               " + DIM + "# reprint runtime diagnostics" + RESET);
+        lines.add(CYAN + " blui exit                 " + DIM + "# terminate shell session" + RESET);
+        lines.add("");
+        lines.add(DIM + " ──────────────────────────────────────────────────" + RESET);
+        lines.add(DIM + GRAY + " v0.1.0-alpha │ Pure Java 24 (Zero external deps)" + RESET);
         lines.add("");
 
         return lines;
     }
 
     public static void printStatusCards() {
-        long memoryGb = Math.max(1, Runtime.getRuntime().maxMemory() / (1024 * 1024 * 1024));
+        int cores = Runtime.getRuntime().availableProcessors();
+        long heapAllocMb = Runtime.getRuntime().totalMemory() / (1024 * 1024);
+        long heapMaxMb = Runtime.getRuntime().maxMemory() / (1024 * 1024);
         String os = System.getProperty("os.name");
+        String arch = System.getProperty("os.arch");
         String javaVer = System.getProperty("java.version");
 
-        String col1 =
-            "┌─ RUNTIME STATUS ──────────────┐\n" +
-            "│ " + GREEN + "●" + RESET + " JVM             OpenJDK " + javaVer + " │\n" +
-            "│ " + GREEN + "●" + RESET + " Virtual Threads Enabled        │\n" +
-            "│ " + GREEN + "●" + RESET + " Governor        Armed          │\n" +
-            "│ " + GREEN + "●" + RESET + " Trace Recorder  Ready          │\n" +
-            "│ " + GREEN + "●" + RESET + " Tool Runner     Ready          │\n" +
-            "└───────────────────────────────┘";
+        List<String> card1 = buildCard("RUNTIME STATUS", List.of(
+            new String[]{"JVM", "OpenJDK " + javaVer},
+            new String[]{"Loom", "Virtual Threads"},
+            new String[]{"Governor", "Circuit Breaker"},
+            new String[]{"Ledger", "In-Memory Trace"},
+            new String[]{"Runner", "Virtual Pool"}
+        ), 32);
 
-        String col2 =
-            "┌─ SYSTEM ──────────────────────┐\n" +
-            "│ 💻 OS       " + padRight(os, 17) + " │\n" +
-            "│ ⚙️  CPU      AMD / Intel Multi  │\n" +
-            "│ 🖴  Memory   " + padRight(memoryGb + " GB", 17) + " │\n" +
-            "│ 📟 Terminal Modern UTF-8      │\n" +
-            "│ ❯_ Shell    Interactive        │\n" +
-            "└───────────────────────────────┘";
+        List<String> card2 = buildCard("SYSTEM", List.of(
+            new String[]{"OS", os},
+            new String[]{"Arch", arch},
+            new String[]{"CPU", cores + " Cores"},
+            new String[]{"Heap", heapAllocMb + "M / " + heapMaxMb + "M"},
+            new String[]{"Encoding", "UTF-8 (CP65001)"}
+        ), 32);
 
-        String col3 =
-            "┌─ PROJECT ─────────────────────┐\n" +
-            "│ 🐙 Repo     Nikhil-Vzo/Blui   │\n" +
-            "│ ☕ Lang     Java 24 LTS       │\n" +
-            "│ 📦 Deps     None (Zero)       │\n" +
-            "│ 📜 License  Apache 2.0        │\n" +
-            "│ 🏷️  Version  0.1.0-alpha       │\n" +
-            "└───────────────────────────────┘";
-
-        String[] lines1 = col1.split("\n");
-        String[] lines2 = col2.split("\n");
-        String[] lines3 = col3.split("\n");
+        List<String> card3 = buildCard("REPOSITORY", List.of(
+            new String[]{"Repo", "Nikhil-Vzo/Blui"},
+            new String[]{"Lang", "Java 24 LTS"},
+            new String[]{"Deps", "Zero (Standard)"},
+            new String[]{"License", "Apache 2.0"},
+            new String[]{"Version", "0.1.0-alpha"}
+        ), 32);
 
         StringBuilder sb = new StringBuilder("\n");
-        for (int i = 0; i < lines1.length; i++) {
-            sb.append(lines1[i]).append(" ")
-              .append(lines2[i]).append(" ")
-              .append(lines3[i]).append("\n");
+        for (int i = 0; i < card1.size(); i++) {
+            sb.append(card1.get(i)).append(" ")
+              .append(card2.get(i)).append(" ")
+              .append(card3.get(i)).append("\n");
         }
         sb.append("\n");
 
-        try {
-            System.out.write(sb.toString().getBytes(StandardCharsets.UTF_8));
-            System.out.flush();
-        } catch (IOException ignored) {}
+        writeUtf8(sb.toString());
+    }
+
+    private static List<String> buildCard(String title, List<String[]> entries, int width) {
+        List<String> card = new ArrayList<>();
+        int dashCount = width - 4 - title.length();
+        card.add("┌─ " + title + " " + "─".repeat(Math.max(0, dashCount)) + "┐");
+
+        int innerWidth = width - 6; // 6 chars for "│ ● " (4) and " │" (2)
+        int keyWidth = 9;
+        int valWidth = innerWidth - keyWidth - 1;
+
+        for (String[] entry : entries) {
+            String key = padRight(entry[0], keyWidth);
+            String val = padRight(entry[1], valWidth);
+            card.add("│ " + GREEN + "●" + RESET + " " + key + " " + val + " │");
+        }
+
+        card.add("└" + "─".repeat(width - 2) + "┘");
+        return card;
     }
 
     private static void writeUtf8(String text) {
@@ -236,7 +252,10 @@ public class BluiCli {
 
         writelnUtf8(GREEN + BOLD + "✓ Execution Finished! Total Steps: " + trace.size() + RESET);
         for (StepTrace step : trace.steps()) {
-            writelnUtf8(DIM + "  Step " + step.stepNumber() + " [" + step.state().getClass().getSimpleName() + "] Tokens: " + step.tokenUsed() + RESET);
+            String tokenNote = step.tokenUsed() > 0
+                ? step.tokenUsed() + " tokens"
+                : "0 tokens (local simulation - no LLM attached)";
+            writelnUtf8(DIM + "  Step " + step.stepNumber() + " [" + step.state().getClass().getSimpleName() + "] " + tokenNote + RESET);
         }
         writelnUtf8("");
     }

@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/banner.png" alt="Blui: Fast. Deterministic. Replayable. Built for Java." width="100%" />
+<img src="assets/blui.png" alt="Blui: AI Agent Runtime & Safety Harness" width="320" />
 
 # 🐈 blui
 
@@ -87,7 +87,7 @@ Modern multi-agent frameworks are plagued by leaky abstractions, unobservable ex
 - [x] Governor budget & cycle-breaking integration (`blui.governor`)
 - [x] Concurrency runner engine (`blui.loom`)
 - [x] Time-travel trace & replay engine (`blui.replay`)
-- [ ] Interactive terminal showcase CLI
+- [x] Interactive terminal showcase CLI (`blui.app.BluiCli`)
 - [ ] v0.1.0 Public Alpha Preview
 
 ---
