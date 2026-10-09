@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/blui.png" alt="Blui: AI Agent Runtime & Safety Harness" width="320" />
+<img src="assets/blui-readme.png" alt="Blui: AI Agent Runtime & Safety Harness" width="100%" />
 
 # 🐈 blui
 
