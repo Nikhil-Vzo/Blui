@@ -84,7 +84,8 @@ Modern multi-agent frameworks are plagued by leaky abstractions, unobservable ex
 
 - [x] Architectural manifesto & sealed state specification
 - [x] Virtual thread concurrency design (`StructuredTaskScope`)
-- [ ] Governor budget & cycle-breaking integration
+- [x] Governor budget & cycle-breaking integration (`blui.governor`)
+- [ ] Concurrency runner engine (`blui.loom`)
 - [ ] Time-travel trace & replay engine
 - [ ] Interactive terminal showcase CLI
 - [ ] v0.1.0 Public Alpha Preview
