@@ -225,7 +225,22 @@ public class SwarmEngine {
                 new LlmProvider.Message("user", "Target Goal: " + task.description() + "\nTarget Scope: " + task.target() + "\nProvide your specialist findings.")
             );
 
-            LlmProvider.LlmResponse response = provider.generate(conversation);
+            long agentTimeoutMs = Math.max(12000, joinTimeout.toMillis() - 4000);
+            LlmProvider.LlmResponse response;
+            try (ExecutorService singleExec = Executors.newSingleThreadExecutor(Thread.ofVirtual().factory())) {
+                Future<LlmProvider.LlmResponse> genFuture = singleExec.submit(() -> provider.generate(conversation));
+                try {
+                    response = genFuture.get(agentTimeoutMs, TimeUnit.MILLISECONDS);
+                } catch (TimeoutException te) {
+                    genFuture.cancel(true);
+                    throw new RuntimeException("Live LLM generation timed out after " + agentTimeoutMs + "ms", te);
+                } catch (ExecutionException ee) {
+                    Throwable cause = ee.getCause() != null ? ee.getCause() : ee;
+                    if (cause instanceof Exception ex) throw ex;
+                    throw new RuntimeException(cause);
+                }
+            }
+
             governor.recordUsage(response.totalTokens());
             governor.checkBudget();
             long duration = System.currentTimeMillis() - startTime;
