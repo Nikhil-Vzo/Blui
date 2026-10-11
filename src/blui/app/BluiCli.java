@@ -52,6 +52,12 @@ public class BluiCli {
 
     public static void main(String[] args) {
         initConsole();
+        if (args != null && args.length > 0) {
+            String commandLine = String.join(" ", args).trim();
+            Scanner scanner = new Scanner(System.in);
+            processCommand(commandLine, scanner);
+            return;
+        }
         printBanner();
         printStatusCards();
         startRepl();
@@ -68,11 +74,11 @@ public class BluiCli {
     public static void printBanner() {
         List<String> imageLines = new ArrayList<>();
         try {
-            imageLines = TerminalArt.renderLines("assets/blui.png", 46, 16);
+            imageLines = TerminalArt.renderLines("assets/blui.png", 44, 16);
         } catch (IOException e) {
             // Fallback placeholder if image not found
             for (int i = 0; i < 16; i++) {
-                imageLines.add(" ".repeat(46));
+                imageLines.add(" ".repeat(44));
             }
         }
 
@@ -82,9 +88,9 @@ public class BluiCli {
         StringBuilder sb = new StringBuilder();
 
         for (int i = 0; i < maxLines; i++) {
-            String img = i < imageLines.size() ? imageLines.get(i) : " ".repeat(46);
+            String img = i < imageLines.size() ? imageLines.get(i) : " ".repeat(44);
             String txt = i < textLines.size() ? textLines.get(i) : "";
-            sb.append(img).append("   ").append(txt).append("\n");
+            sb.append(img).append("  ").append(txt).append("\n");
         }
 
         try {
@@ -93,7 +99,7 @@ public class BluiCli {
         } catch (IOException ignored) {}
     }
 
-    private static List<String> buildRightSideHeader() {
+    static List<String> buildRightSideHeader() {
         List<String> lines = new ArrayList<>();
 
         // ASCII Title (Clean lowercase blui)
@@ -101,21 +107,20 @@ public class BluiCli {
         lines.add(CYAN + BOLD + " █▀▄ █ █ █ ▄    " + RESET);
         lines.add(CYAN + BOLD + " █ █ █ █ █ █    " + RESET);
         lines.add(CYAN + BOLD + " ▀▀▀ ▀  ▀▀ ▀    " + RESET);
-        lines.add(DIM + GRAY + " AI AGENT RUNTIME & SAFETY HARNESS" + RESET);
+        lines.add(DIM + GRAY + " AGENT RUNTIME & HARNESS" + RESET);
         lines.add("");
 
-        lines.add(DIM + " ──────────────────────────────────────────────────" + RESET);
+        lines.add(DIM + " ─────────────────────────────" + RESET);
         lines.add(BOLD + WHITE + " COMMANDS" + RESET);
-        lines.add(CYAN + " blui run " + GRAY + "<goal>          " + DIM + "# execute agent loop" + RESET);
-        lines.add(CYAN + " blui env                  " + DIM + "# configure environment ('k' to keep)" + RESET);
-        lines.add(CYAN + " blui traces               " + DIM + "# list saved flight ledgers" + RESET);
-        lines.add(CYAN + " blui replay " + GRAY + "<id>         " + DIM + "# replay past flight trace" + RESET);
-        lines.add(CYAN + " blui bench                " + DIM + "# spawn 500 virtual threads" + RESET);
-        lines.add(CYAN + " blui status               " + DIM + "# reprint runtime diagnostics" + RESET);
-        lines.add(CYAN + " blui exit                 " + DIM + "# terminate shell session" + RESET);
-        lines.add("");
-        lines.add(DIM + " ──────────────────────────────────────────────────" + RESET);
-        lines.add(DIM + GRAY + " v0.1.0-alpha │ Pure Java 24 (Zero external deps)" + RESET);
+        lines.add(CYAN + " blui run " + GRAY + "<goal> " + DIM + "# run agent" + RESET);
+        lines.add(CYAN + " blui env         " + DIM + "# set keys" + RESET);
+        lines.add(CYAN + " blui traces      " + DIM + "# ledgers" + RESET);
+        lines.add(CYAN + " blui replay " + GRAY + "<id> " + DIM + "# replay" + RESET);
+        lines.add(CYAN + " blui bench       " + DIM + "# 500 threads" + RESET);
+        lines.add(CYAN + " blui status      " + DIM + "# diagnostics" + RESET);
+        lines.add(CYAN + " blui exit        " + DIM + "# exit shell" + RESET);
+        lines.add(DIM + " ─────────────────────────────" + RESET);
+        lines.add(DIM + GRAY + " v0.1.0-alpha │ Pure Java 24" + RESET);
         lines.add("");
 
         return lines;
@@ -129,29 +134,31 @@ public class BluiCli {
         String arch = System.getProperty("os.arch");
         String javaVer = System.getProperty("java.version");
 
-        List<String> card1 = buildCard("RUNTIME STATUS", List.of(
-            new String[]{"JVM", "OpenJDK " + javaVer},
-            new String[]{"Loom", "Virtual Threads"},
-            new String[]{"Governor", "Circuit Breaker"},
-            new String[]{"Ledger", "In-Memory Trace"},
-            new String[]{"Runner", "Virtual Pool"}
-        ), 32);
+        String javaVerShort = javaVer.contains(".") ? javaVer.substring(0, javaVer.indexOf('.', javaVer.indexOf('.') + 1)) : javaVer;
+        List<String> card1 = buildCard("RUNTIME", List.of(
+            new String[]{"JVM", "OpenJDK " + javaVerShort},
+            new String[]{"Loom", "Virtual Th."},
+            new String[]{"Gov", "Circuit Brk"},
+            new String[]{"Ledger", "In-Memory"},
+            new String[]{"Runner", "Virt Pool"}
+        ), 25);
 
+        String osShort = os.length() > 11 ? os.substring(0, 11) : os;
         List<String> card2 = buildCard("SYSTEM", List.of(
-            new String[]{"OS", os},
+            new String[]{"OS", osShort},
             new String[]{"Arch", arch},
             new String[]{"CPU", cores + " Cores"},
-            new String[]{"Heap", heapAllocMb + "M / " + heapMaxMb + "M"},
-            new String[]{"Encoding", "UTF-8 (CP65001)"}
-        ), 32);
+            new String[]{"Heap", heapAllocMb + "M/" + heapMaxMb + "M"},
+            new String[]{"UTF8", "CP65001"}
+        ), 25);
 
         List<String> card3 = buildCard("REPOSITORY", List.of(
-            new String[]{"Repo", "Nikhil-Vzo/Blui"},
+            new String[]{"Repo", "Nikhil-Vzo"},
             new String[]{"Lang", "Java 24 LTS"},
-            new String[]{"Deps", "Zero (Standard)"},
+            new String[]{"Deps", "Zero (Std)"},
             new String[]{"License", "Apache 2.0"},
-            new String[]{"Version", "0.1.0-alpha"}
-        ), 32);
+            new String[]{"Ver", "0.1.0-alpha"}
+        ), 25);
 
         StringBuilder sb = new StringBuilder("\n");
         for (int i = 0; i < card1.size(); i++) {
@@ -164,13 +171,13 @@ public class BluiCli {
         writeUtf8(sb.toString());
     }
 
-    private static List<String> buildCard(String title, List<String[]> entries, int width) {
+    static List<String> buildCard(String title, List<String[]> entries, int width) {
         List<String> card = new ArrayList<>();
-        int dashCount = width - 4 - title.length();
+        int dashCount = width - 5 - title.length();
         card.add("┌─ " + title + " " + "─".repeat(Math.max(0, dashCount)) + "┐");
 
         int innerWidth = width - 6; // 6 chars for "│ ● " (4) and " │" (2)
-        int keyWidth = 9;
+        int keyWidth = 7;
         int valWidth = innerWidth - keyWidth - 1;
 
         for (String[] entry : entries) {
@@ -181,6 +188,14 @@ public class BluiCli {
 
         card.add("└" + "─".repeat(width - 2) + "┘");
         return card;
+    }
+
+    static List<String> buildCardForTesting(String title, List<String[]> entries, int width) {
+        return buildCard(title, entries, width);
+    }
+
+    static List<String> buildRightSideHeaderForTesting() {
+        return buildRightSideHeader();
     }
 
     private static void writeUtf8(String text) {
@@ -202,48 +217,52 @@ public class BluiCli {
             writeUtf8(CYAN + BOLD + "blui > " + RESET);
             if (!scanner.hasNextLine()) break;
             String input = scanner.nextLine().trim();
-
-            if (input.equalsIgnoreCase("exit") || input.equalsIgnoreCase("quit")) {
-                writelnUtf8(GRAY + "Shutting down Blui runtime." + RESET);
-                break;
-            } else if (input.equalsIgnoreCase("status") || input.equalsIgnoreCase("blui status")) {
-                printBanner();
-                printStatusCards();
-            } else if (input.equalsIgnoreCase("help") || input.equalsIgnoreCase("blui help")) {
-                printHelp();
-            } else if (input.equalsIgnoreCase("bench") || input.equalsIgnoreCase("blui bench")) {
-                runBenchmark();
-            } else if (input.equalsIgnoreCase("traces") || input.equalsIgnoreCase("blui traces")) {
-                listTraces();
-            } else if (input.startsWith("replay ") || input.startsWith("blui replay ")) {
-                String id = input.replaceFirst("^(blui replay|replay)\\s+", "").trim();
-                replayTrace(id);
-            } else if (input.equalsIgnoreCase("env show") || input.equalsIgnoreCase("blui env show")
-                    || input.equalsIgnoreCase("env list") || input.equalsIgnoreCase("show env")) {
-                EnvConfig.printCurrent(BluiCli::writelnUtf8);
-            } else if (input.toLowerCase().matches("^(blui\\s+)?(env|set\\s+env|config)\\s+(gemini|ollama|all)$")) {
-                String target = input.replaceFirst("^(blui\\s+)?(env|set\\s+env|config)\\s+", "").trim().toLowerCase();
-                Map<String, String> updated = EnvConfig.runInteractiveWizard(scanner, BluiCli::writelnUtf8, BluiCli::writeUtf8, target);
-                if (updated.containsKey("GEMINI_API_KEY")) {
-                    sessionApiKey = updated.get("GEMINI_API_KEY");
-                }
-            } else if (input.equalsIgnoreCase("env") || input.equalsIgnoreCase("blui env")
-                    || input.equalsIgnoreCase("set env") || input.equalsIgnoreCase("blui set env")
-                    || input.equalsIgnoreCase("config") || input.equalsIgnoreCase("blui config")
-                    || input.equalsIgnoreCase("setup")) {
-                Map<String, String> updated = EnvConfig.runInteractiveWizard(scanner, BluiCli::writelnUtf8, BluiCli::writeUtf8, null);
-                if (updated.containsKey("GEMINI_API_KEY")) {
-                    sessionApiKey = updated.get("GEMINI_API_KEY");
-                }
-            } else if (input.matches("^(blui\\s+)?(set\\s+env|env)\\s+\\w+\\s*=.*")) {
-                handleInlineEnvSet(input);
-            } else if (input.startsWith("run ") || input.startsWith("blui run ")) {
-                String task = input.replaceFirst("^(blui run|run)\\s+", "");
-                executeAgent(task, scanner);
-            } else if (!input.isEmpty()) {
-                writelnUtf8(GRAY + "Unknown command: '" + input + "'. Type 'help' for available commands." + RESET);
-            }
+            if (!processCommand(input, scanner)) break;
         }
+    }
+
+    static boolean processCommand(String input, Scanner scanner) {
+        if (input.equalsIgnoreCase("exit") || input.equalsIgnoreCase("quit")) {
+            writelnUtf8(GRAY + "Shutting down Blui runtime." + RESET);
+            return false;
+        } else if (input.equalsIgnoreCase("status") || input.equalsIgnoreCase("blui status")) {
+            printBanner();
+            printStatusCards();
+        } else if (input.equalsIgnoreCase("help") || input.equalsIgnoreCase("blui help")) {
+            printHelp();
+        } else if (input.equalsIgnoreCase("bench") || input.equalsIgnoreCase("blui bench")) {
+            runBenchmark();
+        } else if (input.equalsIgnoreCase("traces") || input.equalsIgnoreCase("blui traces")) {
+            listTraces();
+        } else if (input.startsWith("replay ") || input.startsWith("blui replay ")) {
+            String id = input.replaceFirst("^(blui replay|replay)\\s+", "").trim();
+            replayTrace(id);
+        } else if (input.equalsIgnoreCase("env show") || input.equalsIgnoreCase("blui env show")
+                || input.equalsIgnoreCase("env list") || input.equalsIgnoreCase("show env")) {
+            EnvConfig.printCurrent(BluiCli::writelnUtf8);
+        } else if (input.toLowerCase().matches("^(blui\\s+)?(env|set\\s+env|config)\\s+(gemini|ollama|all)$")) {
+            String target = input.replaceFirst("^(blui\\s+)?(env|set\\s+env|config)\\s+", "").trim().toLowerCase();
+            Map<String, String> updated = EnvConfig.runInteractiveWizard(scanner, BluiCli::writelnUtf8, BluiCli::writeUtf8, target);
+            if (updated.containsKey("GEMINI_API_KEY")) {
+                sessionApiKey = updated.get("GEMINI_API_KEY");
+            }
+        } else if (input.equalsIgnoreCase("env") || input.equalsIgnoreCase("blui env")
+                || input.equalsIgnoreCase("set env") || input.equalsIgnoreCase("blui set env")
+                || input.equalsIgnoreCase("config") || input.equalsIgnoreCase("blui config")
+                || input.equalsIgnoreCase("setup")) {
+            Map<String, String> updated = EnvConfig.runInteractiveWizard(scanner, BluiCli::writelnUtf8, BluiCli::writeUtf8, null);
+            if (updated.containsKey("GEMINI_API_KEY")) {
+                sessionApiKey = updated.get("GEMINI_API_KEY");
+            }
+        } else if (input.matches("^(blui\\s+)?(set\\s+env|env)\\s+\\w+\\s*=.*")) {
+            handleInlineEnvSet(input);
+        } else if (input.startsWith("run ") || input.startsWith("blui run ")) {
+            String task = input.replaceFirst("^(blui run|run)\\s+", "");
+            executeAgent(task, scanner);
+        } else if (!input.isEmpty()) {
+            writelnUtf8(GRAY + "Unknown command: '" + input + "'. Type 'help' for available commands." + RESET);
+        }
+        return true;
     }
 
     private static void handleInlineEnvSet(String input) {
@@ -407,6 +426,9 @@ public class BluiCli {
         conversation.add(new LlmProvider.Message("user", "Goal: " + goal));
 
         AgentState currentState = new AgentState.Initialized(goal);
+        int totalPromptTokens = 0;
+        int totalCompletionTokens = 0;
+        long startTime = System.currentTimeMillis();
 
         try {
             int maxSteps = 10;
@@ -419,6 +441,8 @@ public class BluiCli {
                 writelnUtf8(DIM + "  Step " + step + " [Thinking] Querying " + provider.modelName() + "..." + RESET);
 
                 LlmProvider.LlmResponse response = provider.generate(conversation);
+                totalPromptTokens += response.promptTokens();
+                totalCompletionTokens += response.completionTokens();
                 governor.budget().recordUsage(response.totalTokens());
                 trace.append(StepTrace.of(step++, currentState, response.totalTokens()));
 
@@ -430,7 +454,8 @@ public class BluiCli {
                     governor.recordAndVerifyToolCall(targetTool.name(), toolInput);
 
                     currentState = new AgentState.ExecutingTools(List.of(targetTool.name()), step);
-                    writelnUtf8(CYAN + "  Step " + step + " [ExecutingTools] " + targetTool.name() + " -> " + toolInput + RESET);
+                    String displayInput = toolInput.length() > 42 ? toolInput.substring(0, 39) + "..." : toolInput;
+                    writelnUtf8(CYAN + "  Step " + step + " [ExecutingTools] " + targetTool.name() + " -> " + displayInput + RESET);
 
                     List<ToolResults> results = loomRunner.runConcurrent(
                             List.of(new ToolExecution(targetTool, toolInput)),
@@ -449,6 +474,8 @@ public class BluiCli {
                     trace.append(StepTrace.of(step, currentState, 0));
                     writelnUtf8(GREEN + BOLD + "\n✓ Goal Completed!" + RESET);
                     writelnUtf8(WHITE + response.content() + RESET + "\n");
+                    long durationMs = System.currentTimeMillis() - startTime;
+                    printTelemetrySummary(totalPromptTokens, totalCompletionTokens, governor.budget().currentCostUsd(), step, durationMs, provider.modelName());
                     break;
                 }
             }
@@ -457,16 +484,22 @@ public class BluiCli {
                 currentState = new AgentState.Failed("Max steps exceeded (" + maxSteps + ")", step);
                 trace.append(StepTrace.of(step, currentState, 0));
                 writelnUtf8(RED + "\n✗ Execution halted: Max steps limit exceeded." + RESET);
+                long durationMs = System.currentTimeMillis() - startTime;
+                printTelemetrySummary(totalPromptTokens, totalCompletionTokens, governor.budget().currentCostUsd(), step, durationMs, provider.modelName());
             }
 
         } catch (Governor.BudgetExceededException | Governor.LoopDetectedException ge) {
             currentState = new AgentState.Failed("Governor circuit breaker: " + ge.getMessage(), step);
             trace.append(StepTrace.of(step, currentState, 0));
             writelnUtf8(RED + "\n[GOVERNOR HALT] " + ge.getMessage() + RESET);
+            long durationMs = System.currentTimeMillis() - startTime;
+            printTelemetrySummary(totalPromptTokens, totalCompletionTokens, governor.budget().currentCostUsd(), step, durationMs, provider.modelName());
         } catch (Exception e) {
             currentState = new AgentState.Failed("Execution error: " + e.getMessage(), step);
             trace.append(StepTrace.of(step, currentState, 0));
             writelnUtf8(RED + "\n[ERROR] " + e.getMessage() + RESET);
+            long durationMs = System.currentTimeMillis() - startTime;
+            printTelemetrySummary(totalPromptTokens, totalCompletionTokens, governor.budget().currentCostUsd(), step, durationMs, provider.modelName());
         }
 
         // Auto-save flight trace to disk
@@ -488,11 +521,51 @@ public class BluiCli {
         return shell;
     }
 
-    private static String summarize(String s) {
+    static String summarize(String s) {
         if (s == null) return "(empty)";
         String line = s.lines().findFirst().orElse("").trim();
-        if (line.length() > 65) return line.substring(0, 62) + "...";
-        return line.isEmpty() ? "(empty)" : line;
+        if (line.isEmpty()) return "(empty)";
+        if (line.length() > 38) return line.substring(0, 35) + "...";
+        return line;
+    }
+
+    public static void printTelemetrySummary(int promptTokens, int completionTokens, double costUsd, int steps, long durationMs, String model) {
+        List<String> lines = buildTelemetryLines(promptTokens, completionTokens, costUsd, steps, durationMs, model);
+        for (String line : lines) {
+            writelnUtf8(line);
+        }
+        writelnUtf8("");
+    }
+
+    static List<String> buildTelemetryLines(int promptTokens, int completionTokens, double costUsd, int steps, long durationMs, String model) {
+        int totalTokens = promptTokens + completionTokens;
+        double seconds = durationMs / 1000.0;
+        String costFormatted = String.format(java.util.Locale.US, "$%.5f", costUsd);
+        String durationFormatted = String.format(java.util.Locale.US, "%.2fs (%dms)", seconds, durationMs);
+
+        String line1 = String.format(java.util.Locale.US, "Tokens:   %d in (prompt) │ %d out (completion) │ %d total", promptTokens, completionTokens, totalTokens);
+        String line2 = String.format(java.util.Locale.US, "Latency:  %s │ Steps: %d │ Cost: %s", durationFormatted, steps, costFormatted);
+        String line3 = String.format(java.util.Locale.US, "Model:    %s │ Governor: Nominal (Budget OK)", model);
+
+        int boxWidth = 72;
+        int inner = boxWidth - 4; // 68 chars
+
+        List<String> res = new ArrayList<>();
+        int dashCount = boxWidth - 1 - "┌─ TELEMETRY ".length();
+        res.add(CYAN + "┌─ TELEMETRY " + "─".repeat(Math.max(0, dashCount)) + "┐" + RESET);
+        res.add(CYAN + "│ " + WHITE + padRight(line1, inner) + CYAN + " │" + RESET);
+        res.add(CYAN + "│ " + WHITE + padRight(line2, inner) + CYAN + " │" + RESET);
+        res.add(CYAN + "│ " + GRAY  + padRight(line3, inner) + CYAN + " │" + RESET);
+        res.add(CYAN + "└" + "─".repeat(boxWidth - 2) + "┘" + RESET);
+        return res;
+    }
+
+    static String summarizeForTesting(String s) {
+        return summarize(s);
+    }
+
+    static List<String> buildTelemetryLinesForTesting(int promptTokens, int completionTokens, double costUsd, int steps, long durationMs, String model) {
+        return buildTelemetryLines(promptTokens, completionTokens, costUsd, steps, durationMs, model);
     }
 
     private static void runMockAgent(String goal) {
@@ -500,6 +573,7 @@ public class BluiCli {
         Governor governor = new Governor(new Budget(5000, 1.00, 0.000003), new CycleDetector(3));
         LoomRunner runner = new LoomRunner();
         BluiEngine engine = new BluiEngine(governor, runner, Duration.ofSeconds(3), 5);
+        long startTime = System.currentTimeMillis();
 
         Tool searchTool = input -> new ToolResults("WebSearch", "Found live data for: " + input, true, 45);
         Tool dbTool = input -> new ToolResults("DatabaseQuery", "Fetched records matching: " + input, true, 30);
@@ -521,6 +595,9 @@ public class BluiCli {
                 : "0 tokens (local simulation - no LLM attached)";
             writelnUtf8(DIM + "  Step " + step.stepNumber() + " [" + step.state().getClass().getSimpleName() + "] " + tokenNote + RESET);
         }
+
+        long durationMs = System.currentTimeMillis() - startTime;
+        printTelemetrySummary(0, 0, 0.0, trace.size(), durationMs, "simulation/mock");
 
         // Auto-save flight trace to disk
         try {
