@@ -40,8 +40,9 @@ Modern multi-agent frameworks are plagued by leaky abstractions, unobservable ex
 | **Concurrency Model** | Single-threaded `asyncio` event loops | **Project Loom Virtual Threads (`newVirtualThreadPerTaskExecutor`)** |
 | **State Integrity** | Mutable Python dicts (`dict[str, Any]`) | **Sealed Type Hierarchies & Immutable Records (`AgentState`)** |
 | **Safety Guardrails** | External wrappers & manual timeouts | **Native Governor (Atomic token budget, loop circuit-breaker)** |
-| **Tool Execution** | Sequential or complex async fan-out | **Lightweight virtual thread pool with microsecond join SLAs** |
-| **Debuggability** | Unreproducible dynamic runs | **Deterministic step-by-step Time-Travel Replay (`AgentTrace`)** |
+| **System Hands (Tools)** | Unchecked dynamic execution | **Sandboxed Shell, Workspace-Jailed File, and Safe HTTP Tools** |
+| **Brain Integration** | Bloated SDK packages (OpenAI/LangChain) | **Zero-dep REST clients for Google Gemini (Free Tier) & Local Ollama** |
+| **Flight Recording** | Transient logs / unreproducible dynamic runs | **Deterministic Black-Box Disk Persistence (`.blui/traces/*.json`)** |
 | **Footprint** | Dozens of brittle transitive pip packages | **Zero external dependencies. 100% pure standard JDK.** |
 
 ---
@@ -49,30 +50,31 @@ Modern multi-agent frameworks are plagued by leaky abstractions, unobservable ex
 ## 🏗️ System Architecture
 
 ```
-                              ┌──────────────────────────────┐
-                              │    blui.app.BluiCli          │ (Interactive Terminal REPL)
-                              └──────────────┬───────────────┘
-                                             │
-                              ┌──────────────┴───────────────┐
-                              │    blui.core.BluiEngine      │ (Master Orchestrator Loop)
-                              └──────────────┬───────────────┘
-                                             │
-            ┌────────────────────────────────┼────────────────────────────────┐
-            ▼                                ▼                                ▼
- ┌─────────────────────┐          ┌─────────────────────┐          ┌─────────────────────┐
- │   blui.core         │          │    blui.governor    │          │      blui.loom      │
- │                     │          │                     │          │                     │
- │  Sealed state records│         │ Token budgeting,    │          │ Project Loom        │
- │  & tool contracts   │          │ hard cost ceilings, │          │ virtual-thread      │
- │  (AgentState, Tool) │          │ & cycle loop-breaker│          │ concurrent runner   │
- └─────────────────────┘          └─────────────────────┘          └─────────────────────┘
-                                             │
-                                             ▼
-                                  ┌─────────────────────┐
-                                  │     blui.replay     │
-                                  │ Immutable traces &  │
-                                  │ time-travel resume  │
-                                  └─────────────────────┘
+                               ┌──────────────────────────────┐
+                               │    blui.app.BluiCli          │ (Interactive Terminal REPL)
+                               └──────────────┬───────────────┘
+                                              │
+                               ┌──────────────┴───────────────┐
+                               │    blui.core.BluiEngine      │ (Master Orchestrator Loop)
+                               └───────┬──────────────┬───────┘
+                                       │              │
+                    ┌──────────────────┴──┐        ┌──┴──────────────────┐
+                    ▼                     ▼        ▼                     ▼
+         ┌─────────────────────┐┌─────────────────────┐┌─────────────────────┐
+         │      blui.llm       ││    blui.governor    ││      blui.loom      │
+         │ (The Agent's Brain) ││ Token budgeting,    ││ Project Loom        │
+         │ Gemini 2.5 & Ollama ││ cost limits, loop   ││ virtual-thread      │
+         │ & MinimalJson parser││ circuit-breaker     ││ concurrent runner   │
+         └─────────────────────┘└─────────────────────┘└──────────┬──────────┘
+                                                                  │
+                                       ┌──────────────────────────┴──────────┐
+                                       ▼                                     ▼
+                            ┌─────────────────────┐               ┌─────────────────────┐
+                            │     blui.tools      │               │     blui.replay     │
+                            │ (The Agent's Hands) │               │ Flight recorder     │
+                            │ ShellTool, FileTool │               │ persistence (.blui) │
+                            │ & HttpTool          │               │ & time-travel debug │
+                            └─────────────────────┘               └─────────────────────┘
 ```
 
 ---
@@ -93,43 +95,48 @@ cd Blui
 .\blui.bat
 
 # Or manual compile & launch on any OS:
-javac -d bin src/blui/core/*.java src/blui/governor/*.java src/blui/loom/*.java src/blui/replay/*.java src/blui/app/*.java
+javac -d bin src/blui/core/*.java src/blui/governor/*.java src/blui/loom/*.java src/blui/replay/*.java src/blui/app/*.java src/blui/tools/*.java src/blui/llm/*.java
 java -cp bin blui.app.BluiCli
 ```
 
 ### 2. Available Interactive Commands
 ```text
 blui > bench               # Spawns 500 concurrent virtual threads (finishes in ~23ms)
-blui > run <goal>          # Executes the autonomous agent loop with Governor safety checks
-blui > status              # Displays live JVM diagnostics (CPU cores, allocated heap, OS/arch)
+blui > run <goal>          # Executes autonomous agent loop with Governor safety checks
+blui > traces              # Lists all past flight recorder ledgers stored on disk
+blui > replay <trace-id>   # Replays exact step-by-step decisions and tool outputs
+blui > status              # Displays live JVM diagnostics (CPU cores, heap, OS/arch)
 blui > exit                # Terminates the shell session
 ```
 
 ---
 
-## 🧩 Codebase Audit (1,073 LOC & Zero Dependencies)
+## 🧩 Codebase Audit (2,023 LOC & Zero Dependencies)
 
 Every component is written from scratch using pure Java 24 primitives:
 
 | Package | Source Files | Lines of Code | Core Responsibility |
 | :--- | :--- | :--- | :--- |
-| **`blui.core`** | `AgentState.java`<br>`Tool.java`<br>`ToolResults.java`<br>`BluiEngine.java` | **259 LOC** | Sealed state hierarchy, functional tool contracts, master loop, and unit verification suite. |
+| **`blui.core`** | `AgentState.java`<br>`Tool.java`<br>`ToolResults.java`<br>`BluiEngine.java`<br>`BluiEngineTest.java` | **259 LOC** | Sealed state hierarchy, functional tool contracts, master loop, and unit verification suite. |
 | **`blui.governor`** | `Budget.java`<br>`CycleDetector.java`<br>`Governor.java` | **175 LOC** | Lock-free token/cost limits and sliding-window loop circuit breaker. |
 | **`blui.loom`** | `ToolExecution.java`<br>`LoomRunner.java` | **106 LOC** | Java 24 Virtual Threads executor running parallel tool calls with strict join SLAs. |
-| **`blui.replay`** | `StepTrace.java`<br>`AgentTrace.java`<br>`ReplayEngine.java` | **135 LOC** | Immutable flight recorder ledger and checkpoint state restoration from step $N$. |
-| **`blui.app`** | `TerminalArt.java`<br>`BluiCli.java` | **398 LOC** | Sub-pixel ANSI 24-bit Truecolor RGBA mascot renderer, hardware status cards, and interactive REPL. |
-| **Total** | **14 Java Files** | **1,073 LOC** | **100% Pure JDK Standard Library** |
+| **`blui.tools`** | `ShellTool.java`<br>`FileTool.java`<br>`HttpTool.java` | **291 LOC** | **Pillar 1 (Hands)**: OS process execution with timeout kills, sandboxed workspace filesystem I/O, web fetcher. |
+| **`blui.llm`** | `MinimalJson.java`<br>`LlmProvider.java`<br>`GeminiClient.java`<br>`OllamaClient.java` | **400 LOC** | **Pillar 2 (Brain)**: Zero-dep JSON parser, Google Gemini API free tier (`gemini-2.5-flash`), local offline Ollama (`localhost:11434`), real token metering. |
+| **`blui.replay`** | `StepTrace.java`<br>`AgentTrace.java`<br>`ReplayEngine.java`<br>`TraceStore.java`<br>`TraceStoreTest.java` | **339 LOC** | **Pillar 3 (Memory)**: Black-box flight recorder to `.blui/traces/*.json`, step-by-step post-mortem inspection, state restoration. |
+| **`blui.app`** | `TerminalArt.java`<br>`BluiCli.java` | **453 LOC** | Sub-pixel ANSI 24-bit Truecolor RGBA mascot renderer, hardware status cards, and interactive REPL shell. |
+| **Total** | **24 Java Files (22 src + 2 test)** | **2,023 LOC** | **100% Pure JDK Standard Library** |
 
 ---
 
 ## 🧪 Verification & Testing
 
-Blui includes a zero-dependency standalone test runner verifying state transitions, budget ceilings, and loop breakers:
+Blui includes standalone, zero-dependency verification suites with 100% passing tests:
 
 ```powershell
-# Compile & run test suite
-javac -d bin -cp bin test/blui/core/BluiEngineTest.java
+# Compile & run full test suite
+javac -d bin -cp bin test/blui/core/BluiEngineTest.java test/blui/replay/TraceStoreTest.java
 java -cp bin blui.core.BluiEngineTest
+java -cp bin blui.replay.TraceStoreTest
 ```
 
 ```text
@@ -139,6 +146,11 @@ Running BluiEngine verification suite...
   ✓ testGovernorCycleDetectionHaltsExecution passed
   ✓ testMaxStepsLimit passed
 All 4 BluiEngine tests passed successfully!
+
+Running TraceStore verification suite...
+  ✓ testSaveAndReadTrace passed
+  ✓ testListTraces passed
+All TraceStore tests passed successfully!
 ```
 
 ---
@@ -151,9 +163,10 @@ All 4 BluiEngine tests passed successfully!
 - [x] **Phase 4: Flight Recorder & Replay Engine (`blui.replay`)**
 - [x] **Phase 5: Master Autonomous Orchestrator Loop (`BluiEngine`)**
 - [x] **Phase 6: Interactive Terminal Showcase & RGBA Mascot Renderer (`BluiCli`)**
-- [ ] **Phase 7: Native Sandboxed System Tools (`blui.tools`)** — `ShellTool` (ProcessBuilder SLA timeouts), `FileTool` (scoped workspace I/O), `HttpTool` (web fetcher).
-- [ ] **Phase 8: Zero-Dep LLM Provider (`blui.llm`)** — Pure JDK streaming client for local Ollama (`localhost:11434`) and Anthropic Claude.
-- [ ] **Phase 9: Trace Persistence & Time-Travel Debugger (`blui.replay`)** — Local JSON ledger (`.blui/traces/*.json`), `blui replay <id>`, and `blui fork <id> --step <N>`.
+- [x] **Phase 7: Native Sandboxed System Tools (`blui.tools`) &mdash; Pillar 1**
+- [x] **Phase 8: Zero-Dep LLM Providers (`blui.llm`) &mdash; Pillar 2** (Gemini & Ollama)
+- [x] **Phase 9: Trace Persistence & Time-Travel Debugger (`blui.replay`) &mdash; Pillar 3**
+- [ ] **Phase 10: Multi-Agent Swarm Concurrency (`blui.swarm`)** &mdash; 500-agent virtual thread choreography
 
 ---
 
