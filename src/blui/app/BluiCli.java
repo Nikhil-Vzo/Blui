@@ -68,6 +68,7 @@ public class BluiCli {
 
     public static void main(String[] args) {
         initConsole();
+        loadSessionFromEnv();
         if (args != null && args.length > 0) {
             String commandLine = String.join(" ", args).trim();
             Scanner scanner = new Scanner(System.in);
@@ -77,6 +78,16 @@ public class BluiCli {
         printBanner();
         printStatusCards();
         startRepl();
+    }
+
+    private static void loadSessionFromEnv() {
+        Map<String, String> env = EnvConfig.load(EnvConfig.DEFAULT_ENV_PATH);
+        if (sessionOpenRouterKey == null && env.containsKey("OPENROUTER_API_KEY")) {
+            sessionOpenRouterKey = EnvConfig.cleanSecret(env.get("OPENROUTER_API_KEY"));
+        }
+        if (sessionApiKey == null && env.containsKey("GEMINI_API_KEY")) {
+            sessionApiKey = EnvConfig.cleanSecret(env.get("GEMINI_API_KEY"));
+        }
     }
 
     private static void initConsole() {
@@ -995,20 +1006,25 @@ public class BluiCli {
     public static final SwarmAgent CONCURRENCY_TESTER = new SwarmAgent(
         "ConcurrencyTester",
         "High-Throughput Loom Stress",
-        "Carrier thread saturation, virtual thread spawning overhead, and SLA join verification",
+        "Virtual thread pool saturation, carrier core affinity, non-blocking execution, and race mitigation",
         """
-        You are the Concurrency Tester specialist in the Blui swarm.
-        Audit high-throughput virtual thread orchestration, task saturation, and thread lifecycle overhead:
-        - Project Loom carrier thread pinning and pool saturation
-        - Virtual thread spawn/park/unpark latency and memory overhead
-        - Parallel task join SLAs and timeout boundary resilience
-        - Thread starvation, lock contention, and non-blocking scalability
+        You are the Concurrency & Loom Stress specialist in the Blui swarm.
+        Conduct a deep, rigorous, Claude/Codex-grade concurrency audit of Project Loom virtual thread scaling:
+        - Virtual Thread Saturation & Carrier Pool Affinity: Audit concurrent dispatch across 1,000+ virtual threads, carrier thread unmounting during blocking socket I/O, and prevention of carrier pool starvation.
+        - Structured Concurrency & Interruption Propagation: Verify StructuredTaskScope-style join timeouts, virtual thread cancellation cascades, and clean thread factory lifecycles.
+        - Egress Rate-Limit Throttling: Audit upstream API request fan-out, identifying rate limit (HTTP 429) exhaustion risks when parallel virtual threads query external LLM providers simultaneously.
+        - Non-Blocking Scalability & Lock Contention: Audit synchronization primitives, thread-safety in shared data collections, and volatile/atomic memory visibility.
 
-        Strict Output Formatting Rules:
-        - Output ONLY 3 to 4 concise bullet points (max 1-2 lines each).
-        - Start each bullet with a clean tag: [STRESS], [OPTIMAL], [WARN], or [REMEDY].
-        - Do NOT output markdown tables, raw pipes, markdown headers (###), horizontal rules (---), or code fences.
-        - Do NOT ask for more files. Evaluate the provided codebase inventory directly.
+        Rigor & Depth Guidelines:
+        - Deliver substantive, multi-paragraph engineering analysis with high technical density.
+        - Cite specific classes (e.g. LoomRunner, SwarmEngine, SwarmGovernor, ThreadFactory).
+        - Detail concrete race conditions, carrier pinning scenarios, and rate-limiting bottlenecks.
+        - Provide actionable remediation code snippets and architectural diffs.
+        - Organize your findings into clear tagged sections:
+          [STRESS] <Headline> followed by detailed technical analysis of concurrent execution resilience.
+          [RISK] <Headline> followed by deep analytical breakdown of concurrency bottlenecks.
+          [REMEDY] <Headline> followed by concrete Java 24 concurrency hardening code snippets.
+        - Do NOT output shallow 1-line responses or generic platitudes.
         """.stripIndent().trim()
     );
     public static final SwarmAgent MEMORY_AUDITOR = new SwarmAgent(
@@ -1016,18 +1032,23 @@ public class BluiCli {
         "JVM Heap & Allocation Profile",
         "Zero-allocation streaming, garbage collection pressure, and footprint efficiency",
         """
-        You are the Memory Auditor specialist in the Blui swarm.
-        Audit JVM heap retention, memory footprint overhead, and garbage collection pressure:
-        - Zero-allocation string parsing and MinimalJson streaming efficiency
-        - Transient object allocation rates and GC pause prevention
-        - Thread-local retention and cache-line memory overhead
-        - Sub-megabyte runtime footprint under concurrent agent load
+        You are the JVM Memory & Allocation Auditor specialist in the Blui swarm.
+        Conduct a deep, rigorous, Claude/Codex-grade memory audit of heap residency and object lifecycle overhead:
+        - Zero-Allocation Streaming & JSON Lexing: Audit MinimalJson string parsing efficiency, identifying heap churn caused by intermediate substring instances during large token streaming responses.
+        - Garbage Collection Pressure & Generational Churn: Verify short-lived allocation rates in Eden space under 8+ parallel virtual threads, ensuring zero GC pauses during critical agent loops.
+        - Virtual Thread Memory Footprint & ThreadLocal Hygiene: Audit thread-local storage usage, ensuring millions of lightweight virtual threads do not retain heavyweight ThreadLocal structures.
+        - Trace Ledger Retention & Heap Growth: Audit TraceStore memory boundaries, preventing unbounded flight trace retention during long-running agent workflows.
 
-        Strict Output Formatting Rules:
-        - Output ONLY 3 to 4 concise bullet points (max 1-2 lines each).
-        - Start each bullet with a clean tag: [PROFILE], [ZERO-ALLOC], [WARN], or [REMEDY].
-        - Do NOT output markdown tables, raw pipes, markdown headers (###), horizontal rules (---), or code fences.
-        - Do NOT ask for more files. Evaluate the provided codebase inventory directly.
+        Rigor & Depth Guidelines:
+        - Deliver substantive, multi-paragraph engineering analysis with high technical density.
+        - Cite specific classes (e.g. MinimalJson, TraceStore, LoomRunner, BluiCli).
+        - Detail concrete memory retention risks, allocation hot-spots, and GC churn scenarios.
+        - Provide actionable remediation code snippets and architectural diffs.
+        - Organize your findings into clear tagged sections:
+          [PROFILE] <Headline> followed by detailed technical analysis of verified memory footprint efficiency.
+          [RISK] <Headline> followed by deep analytical breakdown of memory leaks or allocation overhead.
+          [REMEDY] <Headline> followed by concrete Java 24 memory optimization code snippets.
+        - Do NOT output shallow 1-line responses or generic platitudes.
         """.stripIndent().trim()
     );
     public static final SwarmAgent DEPENDENCY_VERIFIER = new SwarmAgent(
@@ -1035,18 +1056,23 @@ public class BluiCli {
         "Zero External Deps Hardening",
         "Standard library encapsulation, transitive hygiene, and artifact minimalism",
         """
-        You are the Dependency Verifier specialist in the Blui swarm.
-        Verify 100% pure OpenJDK 24 standard library compliance and zero external dependencies:
-        - Zero third-party JARs in compile or runtime classpath
-        - Standard library HttpClient, ProcessBuilder, and IO encapsulation
-        - Modular cohesion and minimal attack surface packaging
-        - Strict zero-dependency architecture integrity
+        You are the Dependency Isolation & Supply Chain specialist in the Blui swarm.
+        Conduct a deep, rigorous, Claude/Codex-grade supply-chain and dependency audit:
+        - 100% Pure OpenJDK 24 Compliance: Verify complete absence of external third-party JARs, Maven/Gradle dependencies, and binary blobs across all 33 source files in `src/`.
+        - Standard Library Encapsulation: Audit java.net.http.HttpClient, java.lang.ProcessBuilder, and java.nio abstractions, verifying that low-level networking and system process calls are fully encapsulated behind safe tool boundaries.
+        - Supply Chain Attack Surface Elimination: Verify that zero external dependencies eliminates entire classes of transitive dependency vulnerabilities (e.g. Log4Shell, prototype pollution, compromised NPM/Maven packages).
+        - Runtime Packaging & Modular Purity: Audit executable jar packaging (blui.jar), classpath cleanliness, and instant sub-second JVM bootstrap time.
 
-        Strict Output Formatting Rules:
-        - Output ONLY 3 to 4 concise bullet points (max 1-2 lines each).
-        - Start each bullet with a clean tag: [ZERO-DEP], [PACKAGING], [WARN], or [REMEDY].
-        - Do NOT output markdown tables, raw pipes, markdown headers (###), horizontal rules (---), or code fences.
-        - Do NOT ask for more files. Evaluate the provided codebase inventory directly.
+        Rigor & Depth Guidelines:
+        - Deliver substantive, multi-paragraph engineering analysis with high technical density.
+        - Cite specific packages and standard classes (e.g. java.net.http, java.lang.ProcessBuilder, ShellTool, HttpTool).
+        - Detail concrete dependency hygiene guarantees and modular packaging boundaries.
+        - Provide actionable remediation code snippets and architectural diffs.
+        - Organize your findings into clear tagged sections:
+          [ZERO-DEP] <Headline> followed by detailed technical analysis of pure standard library compliance.
+          [PASS] <Headline> followed by validation of standard API encapsulation.
+          [REMEDY] <Headline> followed by concrete Java 24 modular hardening recommendations.
+        - Do NOT output shallow 1-line responses or generic platitudes.
         """.stripIndent().trim()
     );
     public static final SwarmAgent LATENCY_OPTIMIZER = new SwarmAgent(
@@ -1054,22 +1080,28 @@ public class BluiCli {
         "Sub-Millisecond Wall Clock",
         "Kernel execution scheduling, IO round-trips, and critical path latency reduction",
         """
-        You are the Latency Optimizer specialist in the Blui swarm.
-        Profile wall-clock latency paths and identify sub-millisecond optimization opportunities:
-        - Orchestrator dispatch latency and virtual thread scheduling overhead
-        - Non-blocking socket I/O round trips vs synchronous blocking
-        - Critical-path JSON parsing and string manipulation latency
-        - Sub-5ms parallel task join SLA compliance
+        You are the Low-Latency Systems Architect specialist in the Blui swarm.
+        Conduct a deep, rigorous, Claude/Codex-grade latency audit of wall-clock execution paths:
+        - Critical-Path Orchestrator Scheduling: Audit SwarmEngine and LoomRunner dispatch overhead, virtual thread unpark latency, and sub-millisecond task join orchestration.
+        - Network Socket I/O & HTTP Protocol Optimization: Audit OpenRouterClient and GeminiClient HTTP requests, evaluating HTTP/2 multiplexing, TLS handshake reuse, and TCP keep-alive socket retention.
+        - Critical-Path String & JSON Parsing Latency: Profile MinimalJson extraction latency and regex matching overhead across high-frequency agent tool evaluation loops.
+        - Parallel Task Join SLAs & Wall-Clock Efficiency: Verify structured timeout boundaries ensuring end-to-end multi-agent execution meets structured performance SLAs.
 
-        Strict Output Formatting Rules:
-        - Output ONLY 3 to 4 concise bullet points (max 1-2 lines each).
-        - Start each bullet with a clean tag: [TIMING], [ASYNC], [WARN], or [REMEDY].
-        - Do NOT output markdown tables, raw pipes, markdown headers (###), horizontal rules (---), or code fences.
-        - Do NOT ask for more files. Evaluate the provided codebase inventory directly.
+        Rigor & Depth Guidelines:
+        - Deliver substantive, multi-paragraph engineering analysis with high technical density.
+        - Cite specific latency-critical paths and components (e.g. SwarmEngine, MinimalJson, OpenRouterClient, HttpClient).
+        - Detail concrete latency bottlenecks, network round-trip overhead, and scheduling delays.
+        - Provide actionable remediation code snippets and architectural diffs.
+        - Organize your findings into clear tagged sections:
+          [TIMING] <Headline> followed by detailed technical analysis of verified sub-millisecond execution paths.
+          [RISK] <Headline> followed by deep analytical breakdown of latency bottlenecks.
+          [REMEDY] <Headline> followed by concrete Java 24 latency optimization code snippets.
+        - Do NOT output shallow 1-line responses or generic platitudes.
         """.stripIndent().trim()
     );
 
     private static void executeSwarm(String input, Scanner scanner) {
+        loadSessionFromEnv();
         SwarmOptions options = parseSwarmCommand(input);
         String goal = options.goal();
         boolean isBoost = options.boost();
@@ -1081,10 +1113,17 @@ public class BluiCli {
         } else {
             writelnUtf8(PURPLE + BOLD + "\n⚡ [SWARM] " + WHITE + "Dispatching " + agents.size() + " Specialist Personas on Project Loom Virtual Threads" + RESET);
         }
-        writelnUtf8(GRAY + "  Target: '" + WHITE + goal + GRAY + "'" + RESET + "\n");
+        writelnUtf8(GRAY + "  Target:   '" + WHITE + goal + GRAY + "'" + RESET);
 
         // Detect LLM provider if available
         LlmProvider provider = resolveProvider(null);
+        if (provider != null) {
+            String pType = (provider instanceof OpenRouterClient) ? "OpenRouter" :
+                           (provider instanceof GeminiClient) ? "Google Gemini" : "Ollama";
+            writelnUtf8(GRAY + "  Provider: " + CYAN + provider.modelName() + GRAY + " (" + pType + ")" + RESET + "\n");
+        } else {
+            writelnUtf8(AMBER + "  Notice:   No live LLM provider configured (.env). Running deep offline Loom simulation." + RESET + "\n");
+        }
 
         SwarmGovernor governor = SwarmGovernor.standard();
         Duration joinTimeout = Duration.ofSeconds(60);
@@ -1244,6 +1283,13 @@ public class BluiCli {
         }
         writelnUtf8("");
 
+        if (!report.telemetryWarnings().isEmpty()) {
+            for (String warn : report.telemetryWarnings()) {
+                writelnUtf8(AMBER + "  ⚠ " + warn + RESET);
+            }
+            writelnUtf8("");
+        }
+
         int boxWidth = resolveBoxWidth();
         // Display Executive Swarm Synthesis Box
         List<String> synthesisBox = buildExecutiveSynthesisBox(report, boxWidth);
@@ -1301,6 +1347,101 @@ public class BluiCli {
 
     record AttributedFinding(String agentName, String tag, String text) {}
 
+    static List<AttributedFinding> parseAgentFindings(String agentName, String findings) {
+        List<AttributedFinding> list = new ArrayList<>();
+        if (findings == null || findings.isBlank()) return list;
+
+        String curTag = null;
+        StringBuilder curText = new StringBuilder();
+
+        for (String rawLine : findings.lines().toList()) {
+            String clean = sanitizeFindingLine(rawLine);
+            if (clean.isEmpty()) {
+                if (curText.length() > 0) curText.append("\n");
+                continue;
+            }
+            String upper = clean.toUpperCase(Locale.ROOT);
+            String detectedTag = null;
+            if (upper.startsWith("[RISK]") || upper.startsWith("[WARN]") || upper.startsWith("[AUDIT]") || upper.startsWith("[FLAW]") || upper.startsWith("[ERROR]")) {
+                detectedTag = "RISK";
+            } else if (upper.startsWith("[REMEDY]") || upper.startsWith("[ADVICE]") || upper.startsWith("[ACTION]") || upper.startsWith("[FIX]")) {
+                detectedTag = "REMEDY";
+            } else if (upper.startsWith("[PASS]") || upper.startsWith("[OPTIMAL]") || upper.startsWith("[PRISTINE]") || upper.startsWith("[VERIFIED]")
+                    || upper.startsWith("[STRUCTURE]") || upper.startsWith("[STRESS]") || upper.startsWith("[PROFILE]")
+                    || upper.startsWith("[ZERO-DEP]") || upper.startsWith("[TIMING]") || upper.startsWith("[METRIC]")) {
+                detectedTag = "STRENGTH";
+            } else if (upper.startsWith("[NOTE]")) {
+                detectedTag = "RISK";
+            }
+
+            if (detectedTag != null) {
+                if (curTag != null && curText.length() > 0) {
+                    list.add(new AttributedFinding(agentName, curTag, curText.toString().trim()));
+                    curText.setLength(0);
+                }
+                curTag = detectedTag;
+                String content = clean.replaceFirst("^\\[[A-Z0-9_-]+\\]\\s*", "");
+                curText.append(content);
+            } else {
+                if (curTag == null) {
+                    curTag = "INFO";
+                }
+                if (curText.length() > 0 && !curText.toString().endsWith("\n")) {
+                    curText.append("\n");
+                }
+                curText.append(clean);
+            }
+        }
+        if (curTag != null && curText.length() > 0) {
+            list.add(new AttributedFinding(agentName, curTag, curText.toString().trim()));
+        }
+        return list;
+    }
+
+    static void renderFindingBlock(List<String> res, String prefix, AttributedFinding f, String headlineColor, int inner) {
+        String text = f.text();
+        if (text == null || text.isBlank()) return;
+
+        List<String> rawLines = text.lines().toList();
+        if (rawLines.isEmpty()) return;
+
+        String headline = rawLines.get(0).trim();
+        List<String> wrappedHeadlines = wrapBulletLines(prefix, headline, inner);
+        for (int j = 0; j < wrappedHeadlines.size(); j++) {
+            String color = (j == 0) ? headlineColor : GRAY;
+            res.add(CYAN + "│ " + color + padRight(wrappedHeadlines.get(j), inner) + CYAN + " │" + RESET);
+        }
+
+        for (int i = 1; i < rawLines.size(); i++) {
+            String line = rawLines.get(i).trim();
+            if (line.isEmpty()) continue;
+            boolean isCode = isCodeLine(line);
+            if (isCode) {
+                int codeInner = Math.max(10, inner - 6);
+                List<String> codeChunks = wrapText(line, codeInner);
+                for (String chunk : codeChunks) {
+                    res.add(CYAN + "│ " + WHITE + padRight("      " + chunk, inner) + CYAN + " │" + RESET);
+                }
+            } else {
+                int paraInner = Math.max(10, inner - 4);
+                List<String> paraChunks = wrapText(line, paraInner);
+                for (String chunk : paraChunks) {
+                    res.add(CYAN + "│ " + GRAY + padRight("    " + chunk, inner) + CYAN + " │" + RESET);
+                }
+            }
+        }
+    }
+
+    private static boolean isCodeLine(String line) {
+        return line.startsWith("Path ") || line.startsWith("if ") || line.startsWith("if(")
+                || line.startsWith("throw ") || line.startsWith("int ") || line.startsWith("return ")
+                || line.startsWith("```") || line.startsWith("diff ") || line.startsWith("public ")
+                || line.startsWith("class ") || line.startsWith("import ") || line.startsWith("package ")
+                || line.startsWith("Configure ") || line.startsWith("Introduce ") || line.startsWith("Enforce ")
+                || line.startsWith("Refactor ") || line.startsWith("Extract ") || line.startsWith("Normalize ")
+                || line.startsWith("Implement ");
+    }
+
     static List<String> buildExecutiveSynthesisBox(SwarmEngine.SwarmReport report, int boxWidth) {
         int inner = boxWidth - 4;
         List<String> res = new ArrayList<>();
@@ -1320,23 +1461,13 @@ public class BluiCli {
         List<AttributedFinding> general = new ArrayList<>();
 
         for (SwarmResult r : report.results()) {
-            for (String rawLine : r.findings().lines().toList()) {
-                String clean = sanitizeFindingLine(rawLine);
-                if (clean.isEmpty()) continue;
-                String upper = clean.toUpperCase(Locale.ROOT);
-                if (upper.startsWith("[RISK]") || upper.startsWith("[WARN]") || upper.startsWith("[AUDIT]") || upper.startsWith("[FLAW]") || upper.startsWith("[ERROR]")) {
-                    String content = clean.replaceFirst("^\\[[A-Z0-9_-]+\\]\\s*", "");
-                    flaws.add(new AttributedFinding(r.agentName(), "RISK", content));
-                } else if (upper.startsWith("[REMEDY]") || upper.startsWith("[ADVICE]") || upper.startsWith("[ACTION]") || upper.startsWith("[FIX]")) {
-                    String content = clean.replaceFirst("^\\[[A-Z0-9_-]+\\]\\s*", "");
-                    remedies.add(new AttributedFinding(r.agentName(), "REMEDY", content));
-                } else if (upper.startsWith("[PASS]") || upper.startsWith("[OPTIMAL]") || upper.startsWith("[PRISTINE]") || upper.startsWith("[VERIFIED]")
-                        || upper.startsWith("[STRUCTURE]") || upper.startsWith("[STRESS]") || upper.startsWith("[PROFILE]")
-                        || upper.startsWith("[ZERO-DEP]") || upper.startsWith("[TIMING]") || upper.startsWith("[METRIC]")) {
-                    String content = clean.replaceFirst("^\\[[A-Z0-9_-]+\\]\\s*", "");
-                    strengths.add(new AttributedFinding(r.agentName(), "STRENGTH", content));
-                } else {
-                    general.add(new AttributedFinding(r.agentName(), "INFO", clean));
+            List<AttributedFinding> agentFindings = parseAgentFindings(r.agentName(), r.findings());
+            for (AttributedFinding f : agentFindings) {
+                switch (f.tag()) {
+                    case "RISK" -> flaws.add(f);
+                    case "REMEDY" -> remedies.add(f);
+                    case "STRENGTH" -> strengths.add(f);
+                    default -> general.add(f);
                 }
             }
         }
@@ -1381,14 +1512,13 @@ public class BluiCli {
         // 2. Identified Flaws & Critical Risks
         if (!flaws.isEmpty()) {
             res.add(CYAN + "│ " + RED + BOLD + padRight("[!] IDENTIFIED FLAWS & CRITICAL RISKS", inner) + CYAN + " │" + RESET);
-            int displayCount = Math.min(flaws.size(), 6);
+            int displayCount = Math.min(flaws.size(), 8);
             for (int i = 0; i < displayCount; i++) {
-                AttributedFinding f = flaws.get(i);
-                List<String> lines = wrapBulletLines("  • [" + f.agentName() + "] ", f.text(), inner);
-                for (int j = 0; j < lines.size(); j++) {
-                    String color = j == 0 ? RED : GRAY;
-                    res.add(CYAN + "│ " + color + padRight(lines.get(j), inner) + CYAN + " │" + RESET);
+                if (i > 0) {
+                    res.add(CYAN + "│ " + padRight("", inner) + CYAN + " │" + RESET);
                 }
+                AttributedFinding f = flaws.get(i);
+                renderFindingBlock(res, "  • [" + f.agentName() + "] ", f, RED, inner);
             }
             res.add(CYAN + "│ " + padRight("", inner) + CYAN + " │" + RESET);
         }
@@ -1396,14 +1526,13 @@ public class BluiCli {
         // 3. Verified Architectural Strengths
         if (!strengths.isEmpty()) {
             res.add(CYAN + "│ " + GREEN + BOLD + padRight("[+] VERIFIED ARCHITECTURAL STRENGTHS", inner) + CYAN + " │" + RESET);
-            int displayCount = Math.min(strengths.size(), 6);
+            int displayCount = Math.min(strengths.size(), 8);
             for (int i = 0; i < displayCount; i++) {
-                AttributedFinding f = strengths.get(i);
-                List<String> lines = wrapBulletLines("  • [" + f.agentName() + "] ", f.text(), inner);
-                for (int j = 0; j < lines.size(); j++) {
-                    String color = j == 0 ? GREEN : GRAY;
-                    res.add(CYAN + "│ " + color + padRight(lines.get(j), inner) + CYAN + " │" + RESET);
+                if (i > 0) {
+                    res.add(CYAN + "│ " + padRight("", inner) + CYAN + " │" + RESET);
                 }
+                AttributedFinding f = strengths.get(i);
+                renderFindingBlock(res, "  • [" + f.agentName() + "] ", f, GREEN, inner);
             }
             res.add(CYAN + "│ " + padRight("", inner) + CYAN + " │" + RESET);
         }
@@ -1411,14 +1540,13 @@ public class BluiCli {
         // 4. Recommended Remediation Playbook
         if (!remedies.isEmpty()) {
             res.add(CYAN + "│ " + AMBER + BOLD + padRight("[>] RECOMMENDED REMEDIATION PLAYBOOK", inner) + CYAN + " │" + RESET);
-            int displayCount = Math.min(remedies.size(), 5);
+            int displayCount = Math.min(remedies.size(), 8);
             for (int i = 0; i < displayCount; i++) {
-                AttributedFinding f = remedies.get(i);
-                List<String> lines = wrapBulletLines("  " + (i + 1) + ". [" + f.agentName() + "] ", f.text(), inner);
-                for (int j = 0; j < lines.size(); j++) {
-                    String color = j == 0 ? AMBER : GRAY;
-                    res.add(CYAN + "│ " + color + padRight(lines.get(j), inner) + CYAN + " │" + RESET);
+                if (i > 0) {
+                    res.add(CYAN + "│ " + padRight("", inner) + CYAN + " │" + RESET);
                 }
+                AttributedFinding f = remedies.get(i);
+                renderFindingBlock(res, "  " + (i + 1) + ". [" + f.agentName() + "] ", f, AMBER, inner);
             }
             res.add(CYAN + "│ " + padRight("", inner) + CYAN + " │" + RESET);
         }
@@ -1426,12 +1554,12 @@ public class BluiCli {
         // 5. Fallback for General / Untagged Findings
         if (flaws.isEmpty() && strengths.isEmpty() && remedies.isEmpty() && !general.isEmpty()) {
             res.add(CYAN + "│ " + CYAN + BOLD + padRight("[#] SPECIALIST SYNTHESIS FINDINGS", inner) + CYAN + " │" + RESET);
-            for (AttributedFinding f : general) {
-                List<String> lines = wrapBulletLines("  • [" + f.agentName() + "] ", f.text(), inner);
-                for (int j = 0; j < lines.size(); j++) {
-                    String color = j == 0 ? WHITE : GRAY;
-                    res.add(CYAN + "│ " + color + padRight(lines.get(j), inner) + CYAN + " │" + RESET);
+            for (int i = 0; i < general.size(); i++) {
+                if (i > 0) {
+                    res.add(CYAN + "│ " + padRight("", inner) + CYAN + " │" + RESET);
                 }
+                AttributedFinding f = general.get(i);
+                renderFindingBlock(res, "  • [" + f.agentName() + "] ", f, WHITE, inner);
             }
             res.add(CYAN + "│ " + padRight("", inner) + CYAN + " │" + RESET);
         }
@@ -1497,6 +1625,16 @@ public class BluiCli {
         res.add(CYAN + "│ " + WHITE + padRight(line1, inner) + CYAN + " │" + RESET);
         res.add(CYAN + "│ " + WHITE + padRight(line2, inner) + CYAN + " │" + RESET);
         res.add(CYAN + "│ " + (report.governorTripped() ? RED : GRAY) + padRight(line3, inner) + CYAN + " │" + RESET);
+
+        if (!report.telemetryWarnings().isEmpty()) {
+            String warn = report.telemetryWarnings().get(0);
+            if (warn.length() > inner - 18) {
+                warn = warn.substring(0, inner - 21) + "...";
+            }
+            String warnLine = "Provider Notice:   " + warn;
+            res.add(CYAN + "│ " + AMBER + padRight(warnLine, inner) + CYAN + " │" + RESET);
+        }
+
         res.add(CYAN + "└" + "─".repeat(boxWidth - 2) + "┘" + RESET);
 
         return res;
