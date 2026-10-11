@@ -62,6 +62,7 @@ public class BluiCli {
     private static final String RED = "\033[38;2;248;113;113m";
     private static final String BLUE = "\033[38;2;96;165;250m";
     private static final String PURPLE = "\033[38;2;192;132;252m";
+    private static final String AMBER = "\033[38;2;251;191;36m";
     private static final String GRAY = "\033[38;2;148;163;184m";
     private static final String WHITE = "\033[38;2;248;250;252m";
 
@@ -488,25 +489,16 @@ public class BluiCli {
         String goal = cleanGoal(rawGoal);
         LlmProvider provider = resolveProvider(scanner);
 
-        if (provider instanceof OpenRouterClient orc) {
-            writelnUtf8(CYAN + "\n[BRAIN] Provider: OpenRouter (" + orc.modelName() + " via openrouter.ai | Reasoning: " + orc.reasoningEffort() + ")" + RESET);
-            runLiveAgent(goal, provider);
-        } else if (provider instanceof GeminiClient) {
-            writelnUtf8(CYAN + "\n[BRAIN] Provider: Google Gemini (" + provider.modelName() + " via Google AI Studio)" + RESET);
-            runLiveAgent(goal, provider);
-        } else if (provider instanceof OllamaClient) {
-            String host = EnvConfig.get("OLLAMA_HOST");
-            writelnUtf8(CYAN + "\n[BRAIN] Provider: Local Ollama (" + provider.modelName() + " @ " + (host != null ? host : "http://localhost:11434") + ")" + RESET);
+        if (provider != null) {
             runLiveAgent(goal, provider);
         } else {
-            writelnUtf8(GRAY + "\n[BRAIN] Note: No OpenRouter/Gemini key or local Ollama daemon found. Running local simulation." + RESET);
             runMockAgent(goal);
         }
     }
 
     private static void runLiveAgent(String rawGoal, LlmProvider provider) {
         String goal = cleanGoal(rawGoal);
-        writelnUtf8(CYAN + "[ENGINE] Initializing Agent for goal: '" + goal + "'..." + RESET);
+        writelnUtf8("");
 
         Governor governor = new Governor(new Budget(50000, 1.00, 0.000003), new CycleDetector(3));
         LoomRunner loomRunner = new LoomRunner();
@@ -546,9 +538,11 @@ public class BluiCli {
                     int i = 0;
                     while (spinning.get()) {
                         double elapsed = (System.currentTimeMillis() - t0) / 1000.0;
-                        writeUtf8("\r\033[K" + CYAN + "  Step " + currentStep + " [Thinking] "
-                                + frames[i++ % frames.length] + " Querying " + provider.modelName()
-                                + String.format(Locale.US, " (%.1fs)...", elapsed) + RESET);
+                        writeUtf8("\r\033[K" + WHITE + BOLD + "  Step " + currentStep + " " + RESET
+                                + AMBER + "[Thinking] " + RESET
+                                + CYAN + frames[i++ % frames.length] + RESET
+                                + " Querying " + GRAY + provider.modelName() + RESET
+                                + DIM + String.format(Locale.US, " (%.1fs)...", elapsed) + RESET);
                         try {
                             Thread.sleep(80);
                         } catch (InterruptedException e) {
@@ -569,8 +563,10 @@ public class BluiCli {
                 }
 
                 double stepElapsed = (System.currentTimeMillis() - t0) / 1000.0;
-                writeUtf8("\r\033[K" + DIM + "  Step " + currentStep + " [Thinking] Querying "
-                        + provider.modelName() + String.format(Locale.US, " (%.1fs)", stepElapsed) + RESET + "\n");
+                writeUtf8("\r\033[K" + WHITE + BOLD + "  Step " + currentStep + " " + RESET
+                        + AMBER + "[Thinking]" + RESET
+                        + " Querying " + GRAY + provider.modelName() + RESET
+                        + DIM + String.format(Locale.US, " (%.1fs)", stepElapsed) + RESET + "\n");
 
                 totalPromptTokens += response.promptTokens();
                 totalCompletionTokens += response.completionTokens();
@@ -587,7 +583,10 @@ public class BluiCli {
 
                     currentState = new AgentState.ExecutingTools(List.of(targetTool.name()), step);
                     String displayInput = toolInput.length() > 42 ? toolInput.substring(0, 39) + "..." : toolInput;
-                    writelnUtf8(CYAN + "  Step " + step + " [ExecutingTools] " + targetTool.name() + " -> " + displayInput + RESET);
+                    writelnUtf8(WHITE + BOLD + "  Step " + step + " " + RESET
+                            + BLUE + "[Tool] " + RESET
+                            + BOLD + targetTool.name() + RESET
+                            + GRAY + " -> " + displayInput + RESET);
 
                     List<ToolResults> results = loomRunner.runConcurrent(
                             List.of(new ToolExecution(targetTool, toolInput)),
@@ -596,7 +595,8 @@ public class BluiCli {
                     ToolResults res = results.get(0);
                     trace.append(StepTrace.of(step, currentState, 0));
 
-                    writelnUtf8(DIM + "    └─ Result (" + res.durationMs() + "ms, success=" + res.isSuccess() + "): " + summarize(res.output()) + RESET);
+                    String statusText = res.isSuccess() ? GREEN + "ok" : RED + "err";
+                    writelnUtf8(DIM + "    └─ Result (" + res.durationMs() + "ms, " + statusText + DIM + "): " + summarize(res.output()) + RESET);
 
                     conversation.add(new LlmProvider.Message("assistant", response.content()));
                     conversation.add(new LlmProvider.Message("user", "OBSERVATION (" + targetTool.name() + "):\n" + res.output()));
@@ -739,7 +739,7 @@ public class BluiCli {
 
     private static void runMockAgent(String rawGoal) {
         String goal = cleanGoal(rawGoal);
-        writelnUtf8(CYAN + "\n[ENGINE] Initializing Agent for goal: '" + goal + "'..." + RESET);
+        writelnUtf8("");
         Governor governor = new Governor(new Budget(5000, 1.00, 0.000003), new CycleDetector(3));
         LoomRunner runner = new LoomRunner();
         BluiEngine engine = new BluiEngine(governor, runner, Duration.ofSeconds(3), 5);
@@ -762,8 +762,8 @@ public class BluiCli {
         for (StepTrace step : trace.steps()) {
             String tokenNote = step.tokenUsed() > 0
                 ? step.tokenUsed() + " tokens"
-                : "0 tokens (local simulation - no LLM attached)";
-            writelnUtf8(DIM + "  Step " + step.stepNumber() + " [" + step.state().getClass().getSimpleName() + "] " + tokenNote + RESET);
+                : "0 tokens (local simulation - zero external dependencies)";
+            writelnUtf8(WHITE + BOLD + "  Step " + step.stepNumber() + " " + RESET + BLUE + "[" + step.state().getClass().getSimpleName() + "] " + RESET + DIM + tokenNote + RESET);
         }
 
         long durationMs = System.currentTimeMillis() - startTime;
@@ -1022,28 +1022,17 @@ public class BluiCli {
         String goal = options.goal();
         boolean isBoost = options.boost();
 
-        writelnUtf8(CYAN + BOLD + "\n[SWARM] Multi-Agent Swarm Orchestrator (Project Loom Virtual Threads)" + RESET);
-        writelnUtf8(GRAY + "Target Goal: '" + WHITE + goal + GRAY + "'" + RESET);
-
         List<SwarmAgent> agents = new ArrayList<>(SwarmAgent.defaultPersonas());
         if (isBoost) {
             agents.addAll(List.of(CONCURRENCY_TESTER, MEMORY_AUDITOR, DEPENDENCY_VERIFIER, LATENCY_OPTIMIZER));
-            writelnUtf8(PURPLE + BOLD + "[BOOST] ⚡ Turbo Concurrency Active: 8 Specialist Personas running on Loom Virtual Threads!" + RESET);
+            writelnUtf8(PURPLE + BOLD + "\n⚡ [SWARM TURBO] " + WHITE + "Dispatching 8 Specialist Personas on Project Loom Virtual Threads" + RESET);
         } else {
-            writelnUtf8(CYAN + "[LOOM] Concurrently dispatching " + agents.size() + " specialist personas with structured join SLA..." + RESET);
+            writelnUtf8(PURPLE + BOLD + "\n⚡ [SWARM] " + WHITE + "Dispatching " + agents.size() + " Specialist Personas on Project Loom Virtual Threads" + RESET);
         }
+        writelnUtf8(GRAY + "  Target: '" + WHITE + goal + GRAY + "'" + RESET + "\n");
 
         // Detect LLM provider if available
         LlmProvider provider = resolveProvider(null);
-        if (provider instanceof OpenRouterClient orc) {
-            writelnUtf8(CYAN + "[BRAIN] Provider: OpenRouter (" + orc.modelName() + " via openrouter.ai | Reasoning: " + orc.reasoningEffort() + ")\n" + RESET);
-        } else if (provider instanceof GeminiClient) {
-            writelnUtf8(CYAN + "[BRAIN] Provider: Google Gemini (" + provider.modelName() + " via Google AI Studio)\n" + RESET);
-        } else if (provider instanceof OllamaClient) {
-            writelnUtf8(CYAN + "[BRAIN] Provider: Local Ollama (" + provider.modelName() + ")\n" + RESET);
-        } else {
-            writelnUtf8(GRAY + "[BRAIN] Simulation Mode: Zero-dependency virtual thread evaluation (pure JDK standard library)\n" + RESET);
-        }
 
         SwarmGovernor governor = SwarmGovernor.standard();
         Duration joinTimeout = Duration.ofSeconds(20);
