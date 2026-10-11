@@ -25,6 +25,22 @@ public class OpenRouterClientTest {
         OpenRouterClient client = new OpenRouterClient("test-key", "sk-or-v1-fake-mock-test-key-00000000");
         assertCondition("nvidia/nemotron-3.5-lightning:free".equals(client.modelName()),
                 "Accidental API key provided as model name must revert to DEFAULT_MODEL");
+
+        // Model equals apiKey (even if no sk- prefix)
+        OpenRouterClient clientKeyMatch = new OpenRouterClient("custom-secret-key-xyz", "custom-secret-key-xyz");
+        assertCondition("nvidia/nemotron-3.5-lightning:free".equals(clientKeyMatch.modelName()),
+                "Model that matches apiKey must revert to DEFAULT_MODEL");
+
+        // Model contains bullets
+        OpenRouterClient clientBullets = new OpenRouterClient("test-key", "sk-or-••••••••abcd");
+        assertCondition("nvidia/nemotron-3.5-lightning:free".equals(clientBullets.modelName()),
+                "Model containing bullets must revert to DEFAULT_MODEL");
+
+        // Model is blank
+        OpenRouterClient clientBlank = new OpenRouterClient("test-key", "   ");
+        assertCondition("nvidia/nemotron-3.5-lightning:free".equals(clientBlank.modelName()),
+                "Blank model must revert to DEFAULT_MODEL");
+
         System.out.println("  ✓ testAccidentalApiKeyAsModelRevertsToDefault passed");
     }
 

@@ -17,6 +17,7 @@ import java.util.function.Consumer;
 public final class EnvConfig {
 
     public static final Path DEFAULT_ENV_PATH = Path.of(".env");
+    public static final String DEFAULT_OPENROUTER_MODEL = "nvidia/nemotron-3.5-lightning:free";
 
     public record VariableDef(String key, String description, boolean isSecret, String defaultValue) {}
 
@@ -72,17 +73,62 @@ public final class EnvConfig {
     }
 
     /**
+     * Determines whether an environment variable key represents a sensitive credential.
+     */
+    public static boolean isSecretKey(String key) {
+        if (key == null) return false;
+        String upper = key.toUpperCase();
+        return upper.contains("KEY") ||
+               upper.contains("SECRET") ||
+               upper.contains("TOKEN") ||
+               upper.contains("PASSWORD");
+    }
+
+    /**
+     * Checks if a provided model string is an accidental API key or masked token string.
+     */
+    public static boolean isCorruptModel(String model, String apiKey) {
+        if (model == null || model.isBlank()) return false;
+        String trimmed = model.trim();
+        if (trimmed.startsWith("sk-") || trimmed.startsWith("AIzaSy") || trimmed.contains("••••")) {
+            return true;
+        }
+        if (apiKey != null && !apiKey.isBlank() && trimmed.equalsIgnoreCase(apiKey.trim())) {
+            return true;
+        }
+        String envKey = System.getenv("OPENROUTER_API_KEY");
+        if (envKey != null && !envKey.isBlank() && trimmed.equalsIgnoreCase(envKey.trim())) {
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Sanitizes map by resetting corrupted OPENROUTER_MODEL to default.
+     * Returns true if map was modified.
+     */
+    public static boolean sanitizeEnvMap(Map<String, String> map) {
+        if (map == null || !map.containsKey("OPENROUTER_MODEL")) {
+            return false;
+        }
+        String model = map.get("OPENROUTER_MODEL");
+        String apiKey = map.get("OPENROUTER_API_KEY");
+        if (isCorruptModel(model, apiKey)) {
+            map.put("OPENROUTER_MODEL", DEFAULT_OPENROUTER_MODEL);
+            return true;
+        }
+        return false;
+    }
+
+    /**
      * Masks secret tokens (showing prefix and suffix with bullets in between).
+     * Ensures secret masking never leaks into non-secret fields.
      */
     public static String mask(String key, String val) {
         if (val == null || val.isBlank()) {
             return "(not set)";
         }
-        boolean isSecret = key.toUpperCase().contains("KEY") ||
-                           key.toUpperCase().contains("SECRET") ||
-                           key.toUpperCase().contains("TOKEN") ||
-                           key.toUpperCase().contains("PASSWORD");
-        if (!isSecret) {
+        if (!isSecretKey(key)) {
             return val;
         }
 
@@ -98,6 +144,7 @@ public final class EnvConfig {
 
     /**
      * Loads key-value pairs from the given .env file path.
+     * Automatically purges and resets corrupted model values.
      */
     public static Map<String, String> load(Path path) {
         Map<String, String> map = new LinkedHashMap<>();
@@ -124,6 +171,12 @@ public final class EnvConfig {
             }
         } catch (IOException ignored) {}
 
+        if (sanitizeEnvMap(map)) {
+            try {
+                save(path, map);
+            } catch (IOException ignored) {}
+        }
+
         return map;
     }
 
@@ -131,11 +184,14 @@ public final class EnvConfig {
      * Saves key-value pairs to the specified .env file path.
      */
     public static void save(Path path, Map<String, String> vars) throws IOException {
+        Map<String, String> sanitized = new LinkedHashMap<>(vars);
+        sanitizeEnvMap(sanitized);
+
         StringBuilder sb = new StringBuilder();
         sb.append("# Blui Agent Environment Configuration\n");
         sb.append("# Generated interactively via terminal\n\n");
 
-        for (Map.Entry<String, String> entry : vars.entrySet()) {
+        for (Map.Entry<String, String> entry : sanitized.entrySet()) {
             String val = entry.getValue();
             if (val != null && !val.isBlank()) {
                 sb.append(entry.getKey()).append("=").append(val.trim()).append("\n");
@@ -156,7 +212,14 @@ public final class EnvConfig {
         if (val == null || val.isBlank() || "clear".equalsIgnoreCase(val.trim())) {
             current.remove(key);
         } else {
-            current.put(key, val.trim());
+            String newVal = val.trim();
+            if ("OPENROUTER_MODEL".equals(key)) {
+                String apiKey = current.get("OPENROUTER_API_KEY");
+                if (isCorruptModel(newVal, apiKey)) {
+                    newVal = DEFAULT_OPENROUTER_MODEL;
+                }
+            }
+            current.put(key, newVal);
         }
         save(path, current);
     }
@@ -169,6 +232,12 @@ public final class EnvConfig {
     public static String get(String key) {
         String envVal = System.getenv(key);
         if (envVal != null && !envVal.isBlank()) {
+            if ("OPENROUTER_MODEL".equals(key)) {
+                String apiKey = System.getenv("OPENROUTER_API_KEY");
+                if (isCorruptModel(envVal, apiKey)) {
+                    envVal = DEFAULT_OPENROUTER_MODEL;
+                }
+            }
             return envVal.trim();
         }
         Map<String, String> envMap = load(DEFAULT_ENV_PATH);
@@ -207,20 +276,21 @@ public final class EnvConfig {
             }
 
             // If user directly pasted an API key at the menu prompt, save it immediately
-            if (choice.startsWith("sk-or-") || (choice.startsWith("sk-") && choice.length() > 20)) {
-                try {
-                    saveVar(DEFAULT_ENV_PATH, "OPENROUTER_API_KEY", choice);
-                    out.accept(GREEN + "✓ Detected OpenRouter API key (" + mask("OPENROUTER_API_KEY", choice) + ") — saved to .env!\n" + RESET);
-                } catch (IOException e) {
-                    out.accept(RED + "✗ Error saving .env: " + e.getMessage() + "\n" + RESET);
-                }
-                return load(DEFAULT_ENV_PATH);
-            } else if (choice.startsWith("AIzaSy")) {
-                try {
-                    saveVar(DEFAULT_ENV_PATH, "GEMINI_API_KEY", choice);
-                    out.accept(GREEN + "✓ Detected Google Gemini API key (" + mask("GEMINI_API_KEY", choice) + ") — saved to .env!\n" + RESET);
-                } catch (IOException e) {
-                    out.accept(RED + "✗ Error saving .env: " + e.getMessage() + "\n" + RESET);
+            if (choice.startsWith("sk-or-") || choice.startsWith("sk-") || choice.startsWith("AIzaSy")) {
+                if (choice.startsWith("AIzaSy")) {
+                    try {
+                        saveVar(DEFAULT_ENV_PATH, "GEMINI_API_KEY", choice);
+                        out.accept(GREEN + "✓ Detected Google Gemini API key (" + mask("GEMINI_API_KEY", choice) + ") — saved to .env!\n" + RESET);
+                    } catch (IOException e) {
+                        out.accept(RED + "✗ Error saving .env: " + e.getMessage() + "\n" + RESET);
+                    }
+                } else {
+                    try {
+                        saveVar(DEFAULT_ENV_PATH, "OPENROUTER_API_KEY", choice);
+                        out.accept(GREEN + "✓ Detected OpenRouter API key (" + mask("OPENROUTER_API_KEY", choice) + ") — saved to .env!\n" + RESET);
+                    } catch (IOException e) {
+                        out.accept(RED + "✗ Error saving .env: " + e.getMessage() + "\n" + RESET);
+                    }
                 }
                 return load(DEFAULT_ENV_PATH);
             }

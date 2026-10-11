@@ -40,7 +40,13 @@ public final class OpenRouterClient implements LlmProvider {
     public OpenRouterClient(String apiKey, String model, String reasoningEffort, Duration timeout) {
         this.apiKey = apiKey != null ? apiKey.trim() : "";
         String m = model != null && !model.isBlank() ? model.trim() : DEFAULT_MODEL;
-        if (m.startsWith("sk-") || m.contains("••••")) {
+        String envKey = resolveEnv("OPENROUTER_API_KEY");
+        if (envKey == null || envKey.isBlank()) {
+            envKey = blui.app.EnvConfig.get("OPENROUTER_API_KEY");
+        }
+        if (m.startsWith("sk-") || m.contains("••••") ||
+            (!this.apiKey.isBlank() && m.equalsIgnoreCase(this.apiKey)) ||
+            (envKey != null && !envKey.isBlank() && m.equalsIgnoreCase(envKey.trim()))) {
             m = DEFAULT_MODEL;
         }
         this.model = m;
@@ -61,7 +67,12 @@ public final class OpenRouterClient implements LlmProvider {
         if (env == null || env.isBlank()) {
             env = blui.app.EnvConfig.get("OPENROUTER_MODEL");
         }
-        if (env != null && (env.startsWith("sk-") || env.contains("••••") || env.isBlank())) {
+        String apiKey = System.getenv("OPENROUTER_API_KEY");
+        if (apiKey == null || apiKey.isBlank()) {
+            apiKey = blui.app.EnvConfig.get("OPENROUTER_API_KEY");
+        }
+        if (env != null && (env.isBlank() || env.startsWith("sk-") || env.contains("••••") ||
+                (apiKey != null && !apiKey.isBlank() && env.trim().equalsIgnoreCase(apiKey.trim())))) {
             return DEFAULT_MODEL;
         }
         return (env != null && !env.isBlank()) ? env.trim() : DEFAULT_MODEL;

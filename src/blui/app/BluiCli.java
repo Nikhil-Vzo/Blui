@@ -398,10 +398,20 @@ public class BluiCli {
         if (openrouterKey != null && !openrouterKey.isBlank() && !"gemini".equalsIgnoreCase(providerPref) && !"ollama".equalsIgnoreCase(providerPref)) {
             sessionOpenRouterKey = openrouterKey;
             String model = EnvConfig.get("OPENROUTER_MODEL");
+            // Sanitize model before constructing OpenRouterClient and immediately clean corrupted .env
+            if (model == null || model.isBlank() || EnvConfig.isCorruptModel(model, openrouterKey)) {
+                model = OpenRouterClient.DEFAULT_MODEL;
+                Map<String, String> currentEnv = EnvConfig.load(EnvConfig.DEFAULT_ENV_PATH);
+                if (currentEnv.containsKey("OPENROUTER_MODEL") && EnvConfig.isCorruptModel(currentEnv.get("OPENROUTER_MODEL"), openrouterKey)) {
+                    try {
+                        EnvConfig.saveVar(EnvConfig.DEFAULT_ENV_PATH, "OPENROUTER_MODEL", OpenRouterClient.DEFAULT_MODEL);
+                    } catch (IOException ignored) {}
+                }
+            }
             String reasoning = EnvConfig.get("OPENROUTER_REASONING_EFFORT");
             return new OpenRouterClient(
                     openrouterKey,
-                    (model != null && !model.isBlank()) ? model : OpenRouterClient.DEFAULT_MODEL,
+                    model,
                     (reasoning != null && !reasoning.isBlank()) ? reasoning : OpenRouterClient.DEFAULT_REASONING_EFFORT,
                     Duration.ofMinutes(2)
             );
@@ -435,7 +445,25 @@ public class BluiCli {
             writeUtf8(BOLD + "       Configure provider now? [1=OpenRouter, 2=Gemini, n=Skip]: " + RESET);
             if (scanner.hasNextLine()) {
                 String choice = scanner.nextLine().trim();
-                if ("1".equals(choice) || "openrouter".equalsIgnoreCase(choice) || "y".equalsIgnoreCase(choice)) {
+                if (choice.startsWith("sk-or-") || choice.startsWith("sk-")) {
+                    try {
+                        EnvConfig.saveVar(EnvConfig.DEFAULT_ENV_PATH, "OPENROUTER_API_KEY", choice);
+                        sessionOpenRouterKey = choice;
+                        writelnUtf8(GREEN + "✓ Detected OpenRouter API key (" + EnvConfig.mask("OPENROUTER_API_KEY", choice) + ") — saved to .env!\n" + RESET);
+                        return resolveProvider(null);
+                    } catch (IOException e) {
+                        writelnUtf8(RED + "✗ Error saving .env: " + e.getMessage() + "\n" + RESET);
+                    }
+                } else if (choice.startsWith("AIzaSy")) {
+                    try {
+                        EnvConfig.saveVar(EnvConfig.DEFAULT_ENV_PATH, "GEMINI_API_KEY", choice);
+                        sessionApiKey = choice;
+                        writelnUtf8(GREEN + "✓ Detected Google Gemini API key (" + EnvConfig.mask("GEMINI_API_KEY", choice) + ") — saved to .env!\n" + RESET);
+                        return resolveProvider(null);
+                    } catch (IOException e) {
+                        writelnUtf8(RED + "✗ Error saving .env: " + e.getMessage() + "\n" + RESET);
+                    }
+                } else if ("1".equals(choice) || "openrouter".equalsIgnoreCase(choice) || "y".equalsIgnoreCase(choice)) {
                     Map<String, String> updated = EnvConfig.runInteractiveWizard(scanner, BluiCli::writelnUtf8, BluiCli::writeUtf8, "openrouter");
                     if (updated.containsKey("OPENROUTER_API_KEY")) {
                         sessionOpenRouterKey = updated.get("OPENROUTER_API_KEY");
@@ -665,12 +693,17 @@ public class BluiCli {
         String line1 = String.format(Locale.US, "Tokens:   %d in (prompt) │ %d out (completion) │ %d total", promptTokens, completionTokens, totalTokens);
         String line2 = String.format(Locale.US, "Latency:  %s │ Steps: %d │ Cost: %s", durationFormatted, steps, costFormatted);
 
+        String safeModel = model;
+        if (safeModel != null && (safeModel.startsWith("sk-") || safeModel.contains("••••") || safeModel.startsWith("AIzaSy"))) {
+            safeModel = OpenRouterClient.DEFAULT_MODEL;
+        }
+
         String line3;
         if (traceId != null && !traceId.isBlank()) {
             String shortId = traceId.startsWith("trace_") ? traceId.substring(6) : traceId;
-            line3 = String.format(Locale.US, "Model:    %s │ Trace: #%s │ Gov: Nominal", model, shortId);
+            line3 = String.format(Locale.US, "Model:    %s │ Trace: #%s │ Gov: Nominal", safeModel, shortId);
         } else {
-            line3 = String.format(Locale.US, "Model:    %s │ Governor: Nominal (Budget OK)", model);
+            line3 = String.format(Locale.US, "Model:    %s │ Governor: Nominal (Budget OK)", safeModel);
         }
 
         int boxWidth = 72;

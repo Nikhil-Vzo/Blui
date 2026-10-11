@@ -19,8 +19,9 @@ public class EnvConfigTest {
         testInlineSet();
         testStreamlinedVariableLists();
         testDirectPastedApiKeyAtMenuPrompt();
+        testCorruptedOpenRouterModelPurgedAndReset();
 
-        System.out.println("All 6 EnvConfig tests passed successfully!");
+        System.out.println("All 7 EnvConfig tests passed successfully!");
     }
 
     private static void testStreamlinedVariableLists() {
@@ -126,6 +127,51 @@ public class EnvConfigTest {
             System.out.println("  ✓ testInlineSet passed");
         } catch (IOException e) {
             throw new RuntimeException("testInlineSet failed: " + e.getMessage(), e);
+        }
+    }
+
+    private static void testCorruptedOpenRouterModelPurgedAndReset() {
+        Path tempEnv = Path.of("build", "test_corrupt.env");
+        try {
+            Files.createDirectories(tempEnv.getParent());
+            Files.deleteIfExists(tempEnv);
+
+            // Write corrupted .env where OPENROUTER_MODEL is the API key
+            String content = "OPENROUTER_API_KEY=sk-or-v1-secret-key-1234567890abcdef\n" +
+                             "OPENROUTER_MODEL=sk-or-v1-secret-key-1234567890abcdef\n";
+            Files.writeString(tempEnv, content);
+
+            Map<String, String> loaded = EnvConfig.load(tempEnv);
+            assertCondition("nvidia/nemotron-3.5-lightning:free".equals(loaded.get("OPENROUTER_MODEL")),
+                    "Corrupted OPENROUTER_MODEL must be purged/reset to default nemotron model on load");
+
+            // Verify the file itself on disk was sanitized
+            String diskContent = Files.readString(tempEnv);
+            assertCondition(!diskContent.contains("OPENROUTER_MODEL=sk-or-v1-"),
+                    "File on disk must not retain corrupted API key as model");
+            assertCondition(diskContent.contains("OPENROUTER_MODEL=nvidia/nemotron-3.5-lightning:free"),
+                    "File on disk must have reset OPENROUTER_MODEL to default nemotron model");
+
+            // Also test save() directly with corrupt model
+            Map<String, String> toSave = Map.of(
+                    "OPENROUTER_API_KEY", "sk-or-v1-another-key",
+                    "OPENROUTER_MODEL", "sk-accidental-paste"
+            );
+            EnvConfig.save(tempEnv, toSave);
+            Map<String, String> reloaded = EnvConfig.load(tempEnv);
+            assertCondition("nvidia/nemotron-3.5-lightning:free".equals(reloaded.get("OPENROUTER_MODEL")),
+                    "save() must sanitize corrupt OPENROUTER_MODEL before writing to disk");
+
+            // Test bullet masked model reset
+            EnvConfig.saveVar(tempEnv, "OPENROUTER_MODEL", "sk-••••••••1234");
+            Map<String, String> maskedReload = EnvConfig.load(tempEnv);
+            assertCondition("nvidia/nemotron-3.5-lightning:free".equals(maskedReload.get("OPENROUTER_MODEL")),
+                    "Masked bullet model must be reset to default model");
+
+            Files.deleteIfExists(tempEnv);
+            System.out.println("  ✓ testCorruptedOpenRouterModelPurgedAndReset passed");
+        } catch (IOException e) {
+            throw new RuntimeException("testCorruptedOpenRouterModelPurgedAndReset failed: " + e.getMessage(), e);
         }
     }
 

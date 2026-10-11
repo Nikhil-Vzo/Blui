@@ -126,6 +126,14 @@ public class BluiCliTest {
         assertCondition(withTraceJoined.contains("Trace: #1791726451987"), "Must show embedded trace ID");
         assertCondition(withTraceJoined.contains("Gov: Nominal"), "Must show Gov: Nominal");
 
+        // Verify accidental API key in model is sanitized in telemetry card
+        List<String> withLeak = BluiCli.buildTelemetryLinesForTesting(
+                100, 20, 0.0001, 1, 500, "sk-or-v1-accidental-api-key"
+        );
+        String leakJoined = String.join("\n", withLeak);
+        assertCondition(!leakJoined.contains("sk-or-v1-accidental-api-key"), "Telemetry box must never print API key in model field");
+        assertCondition(leakJoined.contains("nvidia/nemotron-3.5-lightning:free"), "Telemetry box must fallback to default model name");
+
         System.out.println("  ✓ testTelemetryCardFormatting passed");
     }
 
@@ -269,6 +277,15 @@ public class BluiCliTest {
                 "Client model name must match default model");
         assertCondition("high".equals(client.reasoningEffort()),
                 "Client reasoning effort must match default");
+
+        // Verify client constructed with corrupted model string reverts to default
+        blui.llm.OpenRouterClient clientCorrupt = new blui.llm.OpenRouterClient("test-key", "sk-or-v1-accidental-paste");
+        assertCondition("nvidia/nemotron-3.5-lightning:free".equals(clientCorrupt.modelName()),
+                "Client constructed with accidental key in model must revert to default model");
+
+        blui.llm.OpenRouterClient clientKeyMatch = new blui.llm.OpenRouterClient("my-secret-key", "my-secret-key");
+        assertCondition("nvidia/nemotron-3.5-lightning:free".equals(clientKeyMatch.modelName()),
+                "Client with model matching API key must revert to default model");
 
         System.out.println("  ✓ testOpenRouterModelDefaultsAndProviderResolution passed");
     }
