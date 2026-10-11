@@ -403,24 +403,7 @@ public class BluiCli {
         trace.append(StepTrace.of(step++, new AgentState.Initialized(goal), 0));
 
         List<LlmProvider.Message> conversation = new ArrayList<>();
-        String systemInstruction = """
-            You are Blui, an autonomous AI agent runtime built in pure Java 24.
-            Available physical system tools:
-            1. ShellTool: Runs system terminal commands. Format:
-               TOOL: ShellTool
-               INPUT: <command>
-            2. FileTool: Filesystem operations jailed to workspace. Format:
-               TOOL: FileTool
-               INPUT: read <path> | write <path> <content> | append <path> <content> | list <path> | mkdir <path>
-            3. HttpTool: HTTP GET/POST web fetcher. Format:
-               TOOL: HttpTool
-               INPUT: get <url> | post <url> <body>
-
-            When you need to execute an action, output TOOL: and INPUT:.
-            When you have achieved the goal or answered the question, do NOT output TOOL: lines. Provide the final response.
-            """;
-
-        conversation.add(new LlmProvider.Message("system", systemInstruction));
+        conversation.add(new LlmProvider.Message("system", buildSystemPrompt()));
         conversation.add(new LlmProvider.Message("user", "Goal: " + goal));
 
         AgentState currentState = new AgentState.Initialized(goal);
@@ -549,6 +532,31 @@ public class BluiCli {
         }
 
         writelnUtf8("");
+    }
+
+    private static String buildSystemPrompt() {
+        String os = System.getProperty("os.name", "unknown");
+        boolean isWin = os.toLowerCase().contains("win");
+        String shellHint = isWin ? "Windows CMD (use dir, cd, type, echo, mkdir, etc.)" : "POSIX Shell (use ls, pwd, cat, mkdir, etc.)";
+
+        return """
+            You are Blui, an autonomous agent runtime built in pure Java 24.
+            Environment:
+            - OS: %s (%s)
+            - Workspace Root: .
+
+            Tools:
+            1. ShellTool: INPUT: <command>
+            2. FileTool:  INPUT: read <path> | write <path> <content> | append <path> <content> | list <path> | mkdir <path>
+            3. HttpTool:  INPUT: get <url> | post <url> <body>
+
+            Protocol:
+            - When executing an action, output ONLY:
+              TOOL: <ToolName>
+              INPUT: <Command>
+            - Do NOT include markdown fences, preamble, pleasantries, or explanations before TOOL lines.
+            - When the goal is achieved or no tool is needed, output the final answer directly without TOOL: lines.
+            """.formatted(os, shellHint).stripIndent().trim();
     }
 
     private static String padRight(String s, int n) {
