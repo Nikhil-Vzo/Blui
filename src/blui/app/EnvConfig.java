@@ -1,0 +1,232 @@
+package blui.app;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Scanner;
+import java.util.function.Consumer;
+
+/**
+ * Hermes-style interactive environment & secret configuration manager.
+ * Stores local API keys and endpoints in a git-ignored .env file.
+ */
+public final class EnvConfig {
+
+    public static final Path DEFAULT_ENV_PATH = Path.of(".env");
+
+    public record VariableDef(String key, String description, boolean isSecret, String defaultValue) {}
+
+    public static final List<VariableDef> MANAGED_VARS = List.of(
+            new VariableDef("GEMINI_API_KEY", "Google Gemini API Key (AI Studio)", true, ""),
+            new VariableDef("OLLAMA_HOST", "Local Ollama Host Endpoint", false, "http://localhost:11434"),
+            new VariableDef("OLLAMA_MODEL", "Local Ollama Model Name", false, "llama3.2")
+    );
+
+    private static final String RESET = "\033[0m";
+    private static final String BOLD = "\033[1m";
+    private static final String DIM = "\033[2m";
+    private static final String CYAN = "\033[38;2;80;190;250m";
+    private static final String GREEN = "\033[38;2;52;211;153m";
+    private static final String RED = "\033[38;2;248;113;113m";
+    private static final String YELLOW = "\033[38;2;251;191;36m";
+    private static final String GRAY = "\033[38;2;148;163;184m";
+
+    private EnvConfig() {}
+
+    /**
+     * Checks if the user's input signifies 'keep' (empty line, 'k', 'keep').
+     */
+    public static boolean isKeepChoice(String input) {
+        if (input == null) return true;
+        String trimmed = input.trim();
+        return trimmed.isEmpty() || "k".equalsIgnoreCase(trimmed) || "keep".equalsIgnoreCase(trimmed);
+    }
+
+    /**
+     * Masks secret tokens (showing prefix and suffix with bullets in between).
+     */
+    public static String mask(String key, String val) {
+        if (val == null || val.isBlank()) {
+            return "(not set)";
+        }
+        boolean isSecret = key.toUpperCase().contains("KEY") ||
+                           key.toUpperCase().contains("SECRET") ||
+                           key.toUpperCase().contains("TOKEN") ||
+                           key.toUpperCase().contains("PASSWORD");
+        if (!isSecret) {
+            return val;
+        }
+
+        String trimmed = val.trim();
+        if (trimmed.length() > 10) {
+            return trimmed.substring(0, 6) + "••••••••" + trimmed.substring(trimmed.length() - 4);
+        } else if (trimmed.length() > 4) {
+            return trimmed.substring(0, 2) + "••••••••" + trimmed.substring(trimmed.length() - 2);
+        } else {
+            return "••••••••";
+        }
+    }
+
+    /**
+     * Loads key-value pairs from the given .env file path.
+     */
+    public static Map<String, String> load(Path path) {
+        Map<String, String> map = new LinkedHashMap<>();
+        if (!Files.exists(path)) {
+            return map;
+        }
+
+        try {
+            List<String> lines = Files.readAllLines(path);
+            for (String line : lines) {
+                String trimmed = line.trim();
+                if (trimmed.isEmpty() || trimmed.startsWith("#")) continue;
+                int eq = trimmed.indexOf('=');
+                if (eq > 0) {
+                    String k = trimmed.substring(0, eq).trim();
+                    String v = trimmed.substring(eq + 1).trim();
+                    if ((v.startsWith("\"") && v.endsWith("\"")) || (v.startsWith("'") && v.endsWith("'"))) {
+                        if (v.length() >= 2) {
+                            v = v.substring(1, v.length() - 1);
+                        }
+                    }
+                    map.put(k, v);
+                }
+            }
+        } catch (IOException ignored) {}
+
+        return map;
+    }
+
+    /**
+     * Saves key-value pairs to the specified .env file path.
+     */
+    public static void save(Path path, Map<String, String> vars) throws IOException {
+        StringBuilder sb = new StringBuilder();
+        sb.append("# Blui Agent Environment Configuration\n");
+        sb.append("# Generated interactively via terminal\n\n");
+
+        for (Map.Entry<String, String> entry : vars.entrySet()) {
+            String val = entry.getValue();
+            if (val != null && !val.isBlank()) {
+                sb.append(entry.getKey()).append("=").append(val.trim()).append("\n");
+            }
+        }
+
+        if (path.getParent() != null) {
+            Files.createDirectories(path.getParent());
+        }
+        Files.writeString(path, sb.toString(), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+    }
+
+    /**
+     * Updates or sets a single variable in the specified .env file path.
+     */
+    public static void saveVar(Path path, String key, String val) throws IOException {
+        Map<String, String> current = load(path);
+        if (val == null || val.isBlank() || "clear".equalsIgnoreCase(val.trim())) {
+            current.remove(key);
+        } else {
+            current.put(key, val.trim());
+        }
+        save(path, current);
+    }
+
+    /**
+     * Resolves a variable by checking:
+     * 1. OS Environment Variable
+     * 2. Local .env file
+     */
+    public static String get(String key) {
+        String envVal = System.getenv(key);
+        if (envVal != null && !envVal.isBlank()) {
+            return envVal.trim();
+        }
+        Map<String, String> envMap = load(DEFAULT_ENV_PATH);
+        String fileVal = envMap.get(key);
+        if (fileVal != null && !fileVal.isBlank()) {
+            return fileVal.trim();
+        }
+        return null;
+    }
+
+    /**
+     * Runs the Hermes-style interactive terminal prompt for environment variables.
+     */
+    public static Map<String, String> runInteractiveWizard(Scanner scanner, Consumer<String> out, Consumer<String> outInline) {
+        out.accept("\n" + CYAN + "┌─ ENVIRONMENT CONFIGURATION (Hermes-Style) ─────────────────────────┐" + RESET);
+        out.accept(CYAN + "│ " + GRAY + "Configure API keys & provider endpoints. Stored locally in .env.  " + CYAN + "│" + RESET);
+        out.accept(CYAN + "│ " + YELLOW + "• Press Enter or 'k' to KEEP current value                          " + CYAN + "│" + RESET);
+        out.accept(CYAN + "│ " + GREEN + "• Type a new value to CHANGE it                                     " + CYAN + "│" + RESET);
+        out.accept(CYAN + "│ " + RED + "• Type 'clear' to REMOVE it                                         " + CYAN + "│" + RESET);
+        out.accept(CYAN + "└────────────────────────────────────────────────────────────────────┘\n" + RESET);
+
+        Map<String, String> currentEnv = load(DEFAULT_ENV_PATH);
+        Map<String, String> updated = new LinkedHashMap<>(currentEnv);
+
+        int index = 1;
+        for (VariableDef def : MANAGED_VARS) {
+            String existing = updated.get(def.key());
+            if ((existing == null || existing.isBlank()) && System.getenv(def.key()) != null) {
+                existing = System.getenv(def.key());
+            }
+
+            String maskedCurrent = mask(def.key(), existing);
+
+            out.accept(BOLD + "[" + index + "/" + MANAGED_VARS.size() + "] " + CYAN + def.key() + RESET +
+                       GRAY + " (" + def.description() + ")" + RESET);
+            out.accept("      Current: " + (existing != null && !existing.isBlank() ? GREEN + maskedCurrent : GRAY + maskedCurrent) + RESET);
+
+            outInline.accept(BOLD + "      Enter value (or 'k' to keep): " + RESET);
+            String input = "";
+            if (scanner.hasNextLine()) {
+                input = scanner.nextLine();
+            }
+
+            if (isKeepChoice(input)) {
+                out.accept(GRAY + "      └─ Kept existing value.\n" + RESET);
+            } else if ("clear".equalsIgnoreCase(input.trim()) || "none".equalsIgnoreCase(input.trim())) {
+                updated.remove(def.key());
+                out.accept(YELLOW + "      └─ Cleared.\n" + RESET);
+            } else {
+                String newVal = input.trim();
+                updated.put(def.key(), newVal);
+                out.accept(GREEN + "      └─ Updated: " + mask(def.key(), newVal) + "\n" + RESET);
+            }
+
+            index++;
+        }
+
+        try {
+            save(DEFAULT_ENV_PATH, updated);
+            out.accept(GREEN + BOLD + "✓ Environment configuration saved to .env (git-ignored)\n" + RESET);
+        } catch (IOException e) {
+            out.accept(RED + "✗ Error saving .env file: " + e.getMessage() + "\n" + RESET);
+        }
+
+        return updated;
+    }
+
+    /**
+     * Prints the current environment variables in a clean status box.
+     */
+    public static void printCurrent(Consumer<String> out) {
+        Map<String, String> env = load(DEFAULT_ENV_PATH);
+
+        out.accept("\n" + CYAN + "┌─ CURRENT ENVIRONMENT (.env) ───────────────────────────────────────┐" + RESET);
+        for (VariableDef def : MANAGED_VARS) {
+            String val = env.get(def.key());
+            if (val == null && System.getenv(def.key()) != null) {
+                val = System.getenv(def.key()) + " (from OS env)";
+            }
+            String masked = mask(def.key(), val);
+            String line = String.format("│ %-16s = %-46s │", def.key(), masked);
+            out.accept(CYAN + line + RESET);
+        }
+        out.accept(CYAN + "└────────────────────────────────────────────────────────────────────┘\n" + RESET);
+    }
+}

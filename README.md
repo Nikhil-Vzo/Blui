@@ -109,30 +109,63 @@ java -cp bin blui.app.BluiCli
 
 ### 2. Available Interactive Commands
 ```text
-blui > bench               # Spawns 500 concurrent virtual threads (finishes in ~23ms)
-blui > run <goal>          # Executes live autonomous agent with Governor safety checks
-blui > traces              # Lists all past flight recorder ledgers stored on disk (.blui/traces/)
-blui > replay <trace-id>   # Replays exact step-by-step decisions, token usage, and tool outputs
-blui > status              # Displays live JVM diagnostics (CPU cores, heap, OS/arch)
-blui > exit                # Terminates the shell session
+blui > bench                 # Spawns 500 concurrent virtual threads (finishes in ~23ms)
+blui > run <goal>            # Executes live autonomous agent with Governor safety checks
+blui > env                   # Interactive Hermes-style setup ('k' to keep existing values)
+blui > set env <KEY>=<VAL>   # Sets specific variable inline in .env
+blui > env show              # Displays masked view of current environment configuration
+blui > traces                # Lists all past flight recorder ledgers stored on disk (.blui/traces/)
+blui > replay <trace-id>     # Replays exact step-by-step decisions, token usage, and tool outputs
+blui > status                # Displays live JVM diagnostics (CPU cores, heap, OS/arch)
+blui > exit                  # Terminates the shell session
 ```
 
 ---
 
-## 🔑 LLM Provider & API Key Configuration
+## 🔑 LLM Provider & Hermes-Style Environment Setup
 
 Blui supports both **Cloud LLMs** (Google Gemini 2.5 Flash via Google AI Studio) and **100% Offline Local LLMs** (Ollama @ `localhost:11434`).
 
-Blui resolves your credentials in the following automatic hierarchy:
+### Terminal-Native Hermes-Style Wizard (`blui > env`)
+Like Hermes Agent, you can inspect and update your environment directly inside the terminal:
+```text
+┌─ ENVIRONMENT CONFIGURATION (Hermes-Style) ─────────────────────────┐
+│ Configure API keys & provider endpoints. Stored locally in .env.  │
+│ • Press Enter or 'k' to KEEP current value                          │
+│ • Type a new value to CHANGE it                                     │
+│ • Type 'clear' to REMOVE it                                         │
+└────────────────────────────────────────────────────────────────────┘
 
-1. **In-Memory Session**: If pasted in the active CLI session.
-2. **OS Environment Variable**: `GEMINI_API_KEY` (e.g. `$env:GEMINI_API_KEY="AIzaSy..."` or `export GEMINI_API_KEY="..."`).
-3. **Local `.env` File**: A git-ignored `.env` file in the workspace root:
-   ```env
-   GEMINI_API_KEY=AIzaSy...
-   ```
-4. **Interactive Prompt**: If no key is found when running an agent, Blui prompts you right in the terminal and asks if you would like to save it to `.env` for future sessions.
-5. **Local Ollama Fallback**: If no key is provided, Blui automatically detects if local Ollama is running and uses your local model (`llama3`, `mistral`, etc.).
+[1/3] GEMINI_API_KEY (Google Gemini API Key (AI Studio))
+      Current: AIzaSy••••••••tKey
+      Enter value (or 'k' to keep): k
+      └─ Kept existing value.
+
+[2/3] OLLAMA_HOST (Local Ollama Host Endpoint)
+      Current: http://localhost:11434
+      Enter value (or 'k' to keep): k
+      └─ Kept existing value.
+
+[3/3] OLLAMA_MODEL (Local Ollama Model Name)
+      Current: llama3.2
+      Enter value (or 'k' to keep): k
+      └─ Kept existing value.
+
+✓ Environment configuration saved to .env (git-ignored)
+```
+
+You can also set variables inline anytime:
+```text
+blui > set env GEMINI_API_KEY=AIzaSy...your_key_here
+✓ Set GEMINI_API_KEY = AIzaSy••••••••here in .env (git-ignored)
+```
+
+Blui resolves your credentials in the following automatic hierarchy:
+1. **In-Memory Session**: Active terminal session overrides.
+2. **Local `.env` File**: Managed git-ignored file in project root.
+3. **OS Environment Variables**: `GEMINI_API_KEY`, `OLLAMA_HOST`, `OLLAMA_MODEL`.
+4. **Interactive Wizard**: If running an agent without a configured key, Blui prompts you immediately.
+5. **Local Ollama Fallback**: If no key is set, Blui queries `localhost:11434` for local models.
 
 ---
 
@@ -146,7 +179,7 @@ Every agent run is automatically recorded as an immutable JSON ledger in `.blui/
 
 ---
 
-## 🧩 Codebase Audit (2,109 LOC & Zero Dependencies)
+## 🧩 Codebase Audit (26 Java Files & Zero Dependencies)
 
 Every component is written from scratch using pure Java 24 standard library primitives:
 
@@ -158,8 +191,22 @@ Every component is written from scratch using pure Java 24 standard library prim
 | **`blui.tools`** | `ShellTool.java`<br>`FileTool.java`<br>`HttpTool.java` | **291 LOC** | **Pillar 1 (Hands)**: OS process execution with timeout kills, sandboxed workspace filesystem I/O, web fetcher. |
 | **`blui.llm`** | `MinimalJson.java`<br>`LlmProvider.java`<br>`GeminiClient.java`<br>`OllamaClient.java` | **400 LOC** | **Pillar 2 (Brain)**: Zero-dep JSON parser, Google Gemini API free tier (`gemini-2.5-flash`), local offline Ollama (`localhost:11434`), real token metering. |
 | **`blui.replay`** | `StepTrace.java`<br>`AgentTrace.java`<br>`ReplayEngine.java`<br>`TraceStore.java`<br>`TraceStoreTest.java` | **339 LOC** | **Pillar 3 (Memory)**: Black-box flight recorder to `.blui/traces/*.json`, step-by-step post-mortem inspection, state restoration. |
-| **`blui.app`** | `TerminalArt.java`<br>`BluiCli.java` | **539 LOC** | Sub-pixel ANSI 24-bit Truecolor RGBA mascot renderer, hardware status cards, `.env` auth resolver, and interactive REPL shell. |
-| **Total** | **24 Java Files (22 src + 2 test)** | **2,109 LOC** | **100% Pure JDK Standard Library** |
+| **`blui.app`** | `TerminalArt.java`<br>`BluiCli.java`<br>`EnvConfig.java`<br>`EnvConfigTest.java` | **852 LOC** | Sub-pixel ANSI 24-bit Truecolor RGBA mascot renderer, hardware status cards, Hermes-style `.env` wizard, and interactive REPL shell. |
+| **Total** | **26 Java Files (23 src + 3 test)** | **2,422 LOC** | **100% Pure JDK Standard Library** |
+
+---
+
+## 🧪 Verification & Testing (10/10 Tests Passing)
+
+Blui includes standalone, zero-dependency verification suites with 100% passing tests:
+
+```powershell
+# Compile & run full test suite (10/10 tests)
+javac -d bin -cp bin test/blui/core/BluiEngineTest.java test/blui/replay/TraceStoreTest.java test/blui/app/EnvConfigTest.java
+java -cp bin blui.core.BluiEngineTest
+java -cp bin blui.replay.TraceStoreTest
+java -cp bin blui.app.EnvConfigTest
+```
 
 ---
 

@@ -27,6 +27,7 @@ import java.nio.file.StandardOpenOption;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Scanner;
 
 /**
@@ -106,6 +107,7 @@ public class BluiCli {
         lines.add(DIM + " ──────────────────────────────────────────────────" + RESET);
         lines.add(BOLD + WHITE + " COMMANDS" + RESET);
         lines.add(CYAN + " blui run " + GRAY + "<goal>          " + DIM + "# execute agent loop" + RESET);
+        lines.add(CYAN + " blui env                  " + DIM + "# configure environment ('k' to keep)" + RESET);
         lines.add(CYAN + " blui traces               " + DIM + "# list saved flight ledgers" + RESET);
         lines.add(CYAN + " blui replay " + GRAY + "<id>         " + DIM + "# replay past flight trace" + RESET);
         lines.add(CYAN + " blui bench                " + DIM + "# spawn 500 virtual threads" + RESET);
@@ -216,6 +218,19 @@ public class BluiCli {
             } else if (input.startsWith("replay ") || input.startsWith("blui replay ")) {
                 String id = input.replaceFirst("^(blui replay|replay)\\s+", "").trim();
                 replayTrace(id);
+            } else if (input.equalsIgnoreCase("env show") || input.equalsIgnoreCase("blui env show")
+                    || input.equalsIgnoreCase("env list") || input.equalsIgnoreCase("show env")) {
+                EnvConfig.printCurrent(BluiCli::writelnUtf8);
+            } else if (input.equalsIgnoreCase("env") || input.equalsIgnoreCase("blui env")
+                    || input.equalsIgnoreCase("set env") || input.equalsIgnoreCase("blui set env")
+                    || input.equalsIgnoreCase("config") || input.equalsIgnoreCase("blui config")
+                    || input.equalsIgnoreCase("setup")) {
+                Map<String, String> updated = EnvConfig.runInteractiveWizard(scanner, BluiCli::writelnUtf8, BluiCli::writeUtf8);
+                if (updated.containsKey("GEMINI_API_KEY")) {
+                    sessionApiKey = updated.get("GEMINI_API_KEY");
+                }
+            } else if (input.matches("^(blui\\s+)?(set\\s+env|env)\\s+\\w+\\s*=.*")) {
+                handleInlineEnvSet(input);
             } else if (input.startsWith("run ") || input.startsWith("blui run ")) {
                 String task = input.replaceFirst("^(blui run|run)\\s+", "");
                 executeAgent(task, scanner);
@@ -225,14 +240,40 @@ public class BluiCli {
         }
     }
 
+    private static void handleInlineEnvSet(String input) {
+        String rest = input.replaceFirst("^(blui\\s+)?(set\\s+env|env)\\s+", "").trim();
+        int eq = rest.indexOf('=');
+        if (eq > 0) {
+            String key = rest.substring(0, eq).trim().toUpperCase();
+            String val = rest.substring(eq + 1).trim();
+            if ((val.startsWith("\"") && val.endsWith("\"")) || (val.startsWith("'") && val.endsWith("'"))) {
+                if (val.length() >= 2) val = val.substring(1, val.length() - 1);
+            }
+            try {
+                EnvConfig.saveVar(EnvConfig.DEFAULT_ENV_PATH, key, val);
+                if ("GEMINI_API_KEY".equalsIgnoreCase(key)) {
+                    sessionApiKey = val;
+                }
+                writelnUtf8(GREEN + "✓ Set " + key + " = " + EnvConfig.mask(key, val) + " in .env (git-ignored)\n" + RESET);
+            } catch (IOException e) {
+                writelnUtf8(RED + "✗ Error saving to .env: " + e.getMessage() + "\n" + RESET);
+            }
+        } else {
+            writelnUtf8(GRAY + "Usage: set env KEY=VALUE (or run 'env' for interactive wizard)\n" + RESET);
+        }
+    }
+
     private static void printHelp() {
         writelnUtf8(BOLD + "\nAvailable Commands:" + RESET);
-        writelnUtf8("  " + CYAN + "bench" + RESET + "         - Run 500 concurrent virtual thread tasks");
-        writelnUtf8("  " + CYAN + "run <goal>" + RESET + "    - Execute an agent loop with Governor and Loom");
-        writelnUtf8("  " + CYAN + "traces" + RESET + "        - List all saved flight recorder traces on disk");
-        writelnUtf8("  " + CYAN + "replay <id>" + RESET + "   - Inspect and replay a past flight trace");
-        writelnUtf8("  " + CYAN + "status" + RESET + "        - Reprint runtime dashboard");
-        writelnUtf8("  " + CYAN + "exit" + RESET + "          - Terminate CLI session\n");
+        writelnUtf8("  " + CYAN + "bench" + RESET + "                 - Run 500 concurrent virtual thread tasks");
+        writelnUtf8("  " + CYAN + "run <goal>" + RESET + "            - Execute an agent loop with Governor and Loom");
+        writelnUtf8("  " + CYAN + "env" + RESET + "                   - Interactive environment wizard (Hermes-style 'k' to keep)");
+        writelnUtf8("  " + CYAN + "set env <KEY>=<VAL>" + RESET + "   - Set specific variable inline in .env");
+        writelnUtf8("  " + CYAN + "env show" + RESET + "              - Display current .env configuration");
+        writelnUtf8("  " + CYAN + "traces" + RESET + "                - List all saved flight recorder traces on disk");
+        writelnUtf8("  " + CYAN + "replay <id>" + RESET + "           - Inspect and replay a past flight trace");
+        writelnUtf8("  " + CYAN + "status" + RESET + "                - Reprint runtime dashboard");
+        writelnUtf8("  " + CYAN + "exit" + RESET + "                  - Terminate CLI session\n");
     }
 
     private static void listTraces() {
@@ -290,55 +331,23 @@ public class BluiCli {
             return sessionApiKey;
         }
 
-        // 1. Check OS environment variable
-        String envVal = System.getenv("GEMINI_API_KEY");
-        if (envVal != null && !envVal.isBlank()) {
-            sessionApiKey = envVal.trim();
+        String resolved = EnvConfig.get("GEMINI_API_KEY");
+        if (resolved != null && !resolved.isBlank()) {
+            sessionApiKey = resolved;
             return sessionApiKey;
         }
 
-        // 2. Check local .env file
-        Path envPath = Path.of(".env");
-        if (Files.exists(envPath)) {
-            try {
-                for (String line : Files.readAllLines(envPath)) {
-                    String trimmed = line.trim();
-                    if (trimmed.startsWith("#") || trimmed.isBlank()) continue;
-                    if (trimmed.startsWith("GEMINI_API_KEY=")) {
-                        String val = trimmed.substring("GEMINI_API_KEY=".length()).trim();
-                        if ((val.startsWith("\"") && val.endsWith("\"")) || (val.startsWith("'") && val.endsWith("'"))) {
-                            val = val.substring(1, val.length() - 1);
-                        }
-                        if (!val.isBlank()) {
-                            sessionApiKey = val;
-                            return sessionApiKey;
-                        }
-                    }
-                }
-            } catch (IOException ignored) {}
-        }
-
-        // 3. Prompt user interactively in the terminal
+        // Prompt user interactively
         writelnUtf8(CYAN + "\n[AUTH] GEMINI_API_KEY not found in OS environment or .env file." + RESET);
-        writeUtf8(BOLD + "       Paste Gemini API key (or press Enter for local Ollama/simulation): " + RESET);
+        writeUtf8(BOLD + "       Run environment setup now? [Y/n] (or press Enter to configure): " + RESET);
         if (scanner.hasNextLine()) {
-            String input = scanner.nextLine().trim();
-            if (!input.isBlank()) {
-                sessionApiKey = input;
-                writeUtf8(GRAY + "       Save key to .env for future sessions? (y/N): " + RESET);
-                if (scanner.hasNextLine()) {
-                    String choice = scanner.nextLine().trim();
-                    if ("y".equalsIgnoreCase(choice) || "yes".equalsIgnoreCase(choice)) {
-                        try {
-                            Files.writeString(envPath, "GEMINI_API_KEY=" + sessionApiKey + System.lineSeparator(),
-                                    StandardOpenOption.CREATE, StandardOpenOption.APPEND);
-                            writelnUtf8(GREEN + "       ✓ Saved key to .env (git-ignored)" + RESET);
-                        } catch (IOException e) {
-                            writelnUtf8(GRAY + "       (Could not write to .env: " + e.getMessage() + ")" + RESET);
-                        }
-                    }
+            String choice = scanner.nextLine().trim();
+            if (choice.isEmpty() || "y".equalsIgnoreCase(choice) || "yes".equalsIgnoreCase(choice)) {
+                Map<String, String> updated = EnvConfig.runInteractiveWizard(scanner, BluiCli::writelnUtf8, BluiCli::writeUtf8);
+                if (updated.containsKey("GEMINI_API_KEY")) {
+                    sessionApiKey = updated.get("GEMINI_API_KEY");
+                    return sessionApiKey;
                 }
-                return sessionApiKey;
             }
         }
 
@@ -353,10 +362,15 @@ public class BluiCli {
             provider = new GeminiClient(apiKey);
             writelnUtf8(CYAN + "\n[BRAIN] Provider: Google Gemini (" + provider.modelName() + " via Google AI Studio)" + RESET);
         } else {
-            OllamaClient ollama = new OllamaClient();
+            String ollamaHost = EnvConfig.get("OLLAMA_HOST");
+            String ollamaModel = EnvConfig.get("OLLAMA_MODEL");
+            String host = (ollamaHost != null && !ollamaHost.isBlank()) ? ollamaHost : "http://localhost:11434";
+            String model = (ollamaModel != null && !ollamaModel.isBlank()) ? ollamaModel : "llama3.2";
+
+            OllamaClient ollama = new OllamaClient(host, model, Duration.ofMinutes(2));
             if (ollama.isAvailable()) {
                 provider = ollama;
-                writelnUtf8(CYAN + "\n[BRAIN] Provider: Local Ollama (" + provider.modelName() + " @ localhost:11434)" + RESET);
+                writelnUtf8(CYAN + "\n[BRAIN] Provider: Local Ollama (" + provider.modelName() + " @ " + host + ")" + RESET);
             } else {
                 writelnUtf8(GRAY + "\n[BRAIN] Note: No Gemini key or local Ollama daemon found. Running local simulation." + RESET);
                 runMockAgent(goal);
