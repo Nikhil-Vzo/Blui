@@ -7,6 +7,7 @@ import blui.core.ToolResults;
 import blui.governor.Budget;
 import blui.governor.CycleDetector;
 import blui.governor.Governor;
+import blui.llm.FailoverLlmProvider;
 import blui.llm.GeminiClient;
 import blui.llm.LlmProvider;
 import blui.llm.OllamaClient;
@@ -81,12 +82,17 @@ public class BluiCli {
     }
 
     private static void loadSessionFromEnv() {
-        Map<String, String> env = EnvConfig.load(EnvConfig.DEFAULT_ENV_PATH);
-        if (sessionOpenRouterKey == null && env.containsKey("OPENROUTER_API_KEY")) {
-            sessionOpenRouterKey = EnvConfig.cleanSecret(env.get("OPENROUTER_API_KEY"));
+        if (sessionOpenRouterKey == null) {
+            String k = EnvConfig.get("OPENROUTER_API_KEY");
+            if (k != null && !k.isBlank()) {
+                sessionOpenRouterKey = k;
+            }
         }
-        if (sessionApiKey == null && env.containsKey("GEMINI_API_KEY")) {
-            sessionApiKey = EnvConfig.cleanSecret(env.get("GEMINI_API_KEY"));
+        if (sessionApiKey == null) {
+            String k = EnvConfig.get("GEMINI_API_KEY");
+            if (k != null && !k.isBlank()) {
+                sessionApiKey = k;
+            }
         }
     }
 
@@ -405,6 +411,10 @@ public class BluiCli {
 
     private static LlmProvider resolveProvider(Scanner scanner) {
         String providerPref = EnvConfig.get("LLM_PROVIDER");
+        if ("mock".equalsIgnoreCase(providerPref) || "offline".equalsIgnoreCase(providerPref) || "none".equalsIgnoreCase(providerPref)) {
+            return null;
+        }
+        List<LlmProvider> available = new ArrayList<>();
 
         // 1. OpenRouter (Primary if configured)
         String openrouterKey = sessionOpenRouterKey != null ? sessionOpenRouterKey : EnvConfig.get("OPENROUTER_API_KEY");
@@ -422,34 +432,42 @@ public class BluiCli {
                 }
             }
             String reasoning = EnvConfig.get("OPENROUTER_REASONING_EFFORT");
-            return new OpenRouterClient(
+            available.add(new OpenRouterClient(
                     openrouterKey,
                     model,
                     (reasoning != null && !reasoning.isBlank()) ? reasoning : OpenRouterClient.DEFAULT_REASONING_EFFORT,
                     Duration.ofMinutes(2)
-            );
+            ));
         }
 
         // 2. Google Gemini
         String geminiKey = sessionApiKey != null ? sessionApiKey : EnvConfig.get("GEMINI_API_KEY");
-        if (geminiKey != null && !geminiKey.isBlank() && !"ollama".equalsIgnoreCase(providerPref)) {
+        if (geminiKey != null && !geminiKey.isBlank() && !"openrouter".equalsIgnoreCase(providerPref) && !"ollama".equalsIgnoreCase(providerPref)) {
             sessionApiKey = geminiKey;
             String customModel = EnvConfig.get("GEMINI_MODEL");
-            return new GeminiClient(
+            available.add(new GeminiClient(
                     geminiKey,
                     customModel != null ? customModel : GeminiClient.DEFAULT_MODEL,
                     Duration.ofMinutes(2)
-            );
+            ));
         }
 
         // 3. Local Ollama
-        String ollamaHost = EnvConfig.get("OLLAMA_HOST");
-        String ollamaModel = EnvConfig.get("OLLAMA_MODEL");
-        String host = (ollamaHost != null && !ollamaHost.isBlank()) ? ollamaHost : "http://localhost:11434";
-        String model = (ollamaModel != null && !ollamaModel.isBlank()) ? ollamaModel : "llama3.2";
-        OllamaClient ollama = new OllamaClient(host, model, Duration.ofMinutes(2));
-        if (ollama.isAvailable()) {
-            return ollama;
+        if (!"openrouter".equalsIgnoreCase(providerPref) && !"gemini".equalsIgnoreCase(providerPref)) {
+            String ollamaHost = EnvConfig.get("OLLAMA_HOST");
+            String host = (ollamaHost != null && !ollamaHost.isBlank()) ? ollamaHost : "http://localhost:11434";
+            String ollamaModel = EnvConfig.get("OLLAMA_MODEL");
+            String resolvedModel = OllamaClient.resolveModel(host, ollamaModel);
+            OllamaClient ollama = new OllamaClient(host, resolvedModel, Duration.ofMinutes(2));
+            if (ollama.isAvailable()) {
+                available.add(ollama);
+            }
+        }
+
+        if (available.size() == 1) {
+            return available.get(0);
+        } else if (available.size() > 1) {
+            return new FailoverLlmProvider(available);
         }
 
         // 4. Interactive prompt if scanner is active
@@ -1118,8 +1136,16 @@ public class BluiCli {
         // Detect LLM provider if available
         LlmProvider provider = resolveProvider(null);
         if (provider != null) {
-            String pType = (provider instanceof OpenRouterClient) ? "OpenRouter" :
-                           (provider instanceof GeminiClient) ? "Google Gemini" : "Ollama";
+            String pType;
+            if (provider instanceof FailoverLlmProvider failover) {
+                pType = "Auto-Failover (" + failover.providerSummary() + ")";
+            } else if (provider instanceof OpenRouterClient) {
+                pType = "OpenRouter";
+            } else if (provider instanceof GeminiClient) {
+                pType = "Google Gemini";
+            } else {
+                pType = "Ollama";
+            }
             writelnUtf8(GRAY + "  Provider: " + CYAN + provider.modelName() + GRAY + " (" + pType + ")" + RESET + "\n");
         } else {
             writelnUtf8(AMBER + "  Notice:   No live LLM provider configured (.env). Running deep offline Loom simulation." + RESET + "\n");
@@ -1370,8 +1396,8 @@ public class BluiCli {
                     || upper.startsWith("[STRUCTURE]") || upper.startsWith("[STRESS]") || upper.startsWith("[PROFILE]")
                     || upper.startsWith("[ZERO-DEP]") || upper.startsWith("[TIMING]") || upper.startsWith("[METRIC]")) {
                 detectedTag = "STRENGTH";
-            } else if (upper.startsWith("[NOTE]")) {
-                detectedTag = "RISK";
+            } else if (upper.startsWith("[NOTE]") || upper.startsWith("[INFO]") || upper.startsWith("[OBSERVATION]")) {
+                detectedTag = "INFO";
             }
 
             if (detectedTag != null) {
@@ -1437,9 +1463,8 @@ public class BluiCli {
                 || line.startsWith("throw ") || line.startsWith("int ") || line.startsWith("return ")
                 || line.startsWith("```") || line.startsWith("diff ") || line.startsWith("public ")
                 || line.startsWith("class ") || line.startsWith("import ") || line.startsWith("package ")
-                || line.startsWith("Configure ") || line.startsWith("Introduce ") || line.startsWith("Enforce ")
-                || line.startsWith("Refactor ") || line.startsWith("Extract ") || line.startsWith("Normalize ")
-                || line.startsWith("Implement ");
+                || line.startsWith("var ") || line.startsWith("final ") || line.startsWith("boolean ")
+                || line.startsWith("String ") || line.startsWith("void ") || line.startsWith("HttpClient ");
     }
 
     static List<String> buildExecutiveSynthesisBox(SwarmEngine.SwarmReport report, int boxWidth) {
@@ -1551,10 +1576,11 @@ public class BluiCli {
             res.add(CYAN + "│ " + padRight("", inner) + CYAN + " │" + RESET);
         }
 
-        // 5. Fallback for General / Untagged Findings
-        if (flaws.isEmpty() && strengths.isEmpty() && remedies.isEmpty() && !general.isEmpty()) {
+        // 5. Specialist Domain Observations & Synthesis Findings
+        if (!general.isEmpty()) {
             res.add(CYAN + "│ " + CYAN + BOLD + padRight("[#] SPECIALIST SYNTHESIS FINDINGS", inner) + CYAN + " │" + RESET);
-            for (int i = 0; i < general.size(); i++) {
+            int displayCount = Math.min(general.size(), 8);
+            for (int i = 0; i < displayCount; i++) {
                 if (i > 0) {
                     res.add(CYAN + "│ " + padRight("", inner) + CYAN + " │" + RESET);
                 }

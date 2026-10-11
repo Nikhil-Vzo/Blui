@@ -5,6 +5,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -102,6 +103,49 @@ public final class OllamaClient implements LlmProvider {
         } catch (Exception e) {
             return false;
         }
+    }
+
+    /**
+     * Queries the local Ollama daemon for all currently installed models.
+     */
+    public static List<String> listInstalledModels(String host) {
+        try {
+            String base = (host != null && !host.isBlank()) ? host.replaceAll("/+$", "") : DEFAULT_HOST;
+            HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build();
+            HttpRequest ping = HttpRequest.newBuilder()
+                    .uri(URI.create(base + "/api/tags"))
+                    .timeout(Duration.ofSeconds(2))
+                    .GET()
+                    .build();
+            HttpResponse<String> resp = client.send(ping, HttpResponse.BodyHandlers.ofString());
+            if (resp.statusCode() == 200 && resp.body() != null) {
+                List<String> list = new ArrayList<>();
+                Matcher m = Pattern.compile("\"name\"\\s*:\\s*\"([^\"]+)\"").matcher(resp.body());
+                while (m.find()) {
+                    list.add(m.group(1));
+                }
+                return list;
+            }
+        } catch (Exception ignored) {}
+        return List.of();
+    }
+
+    /**
+     * Resolves the effective model name. If user did not explicitly configure a custom model,
+     * checks whether the default model is installed, or automatically picks the first installed model.
+     */
+    public static String resolveModel(String host, String requestedModel) {
+        if (requestedModel != null && !requestedModel.isBlank() && !DEFAULT_MODEL.equals(requestedModel)) {
+            return requestedModel;
+        }
+        List<String> installed = listInstalledModels(host);
+        if (installed.contains(DEFAULT_MODEL)) {
+            return DEFAULT_MODEL;
+        }
+        if (!installed.isEmpty()) {
+            return installed.get(0);
+        }
+        return (requestedModel != null && !requestedModel.isBlank()) ? requestedModel : DEFAULT_MODEL;
     }
 
     private String buildRequestBody(List<Message> conversation) {

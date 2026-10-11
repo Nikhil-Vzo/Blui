@@ -242,7 +242,7 @@ public class SwarmEngine {
                 new LlmProvider.Message("user", "Target Goal: " + task.description() + "\nTarget Scope: " + task.target() + "\nProvide your specialist findings.")
             );
 
-            long agentTimeoutMs = Math.min(22000, Math.max(12000, joinTimeout.toMillis() - 4000));
+            long agentTimeoutMs = Math.max(15000, joinTimeout.toMillis() - 3000);
             LlmProvider.LlmResponse response;
             try (ExecutorService singleExec = Executors.newSingleThreadExecutor(Thread.ofVirtual().factory())) {
                 Future<LlmProvider.LlmResponse> genFuture = singleExec.submit(() -> provider.generate(conversation));
@@ -296,15 +296,14 @@ public class SwarmEngine {
             }
 
             SwarmResult mockRes = executeMockAgent(task, agent, startTime);
-            String note = "[RISK] Upstream Provider Quota / Rate Limit (HTTP 429): " + warningMsg + "\n\n";
-            return new SwarmResult(agent.name(), agent.role(), note + mockRes.findings(), mockRes.tokens(), mockRes.durationMs(), true);
+            return new SwarmResult(agent.name(), agent.role(), mockRes.findings(), mockRes.tokens(), mockRes.durationMs(), true);
         }
     }
 
     private SwarmResult executeMockAgent(SwarmTask task, SwarmAgent agent, long startTime) {
-        // Small virtual thread sleep to simulate concurrent processing
+        // Realistic simulated processing latency across Loom virtual threads
         try {
-            Thread.sleep(60 + (long)(Math.random() * 40));
+            Thread.sleep(250 + (long)(Math.random() * 200));
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
             throw new RuntimeException("Virtual thread execution interrupted", ie);

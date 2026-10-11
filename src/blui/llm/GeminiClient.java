@@ -84,6 +84,21 @@ public final class GeminiClient implements LlmProvider {
             }
         }
 
+        // Secondary fallback to gemini-3.8-flash for modern Google AI Studio accounts
+        if (response.statusCode() != 200 && !model.equals("gemini-3.8-flash") && !FALLBACK_MODEL.equals("gemini-3.8-flash")) {
+            String fb38Endpoint = BASE_URL + "gemini-3.8-flash:generateContent?key=" + apiKey;
+            HttpRequest fb38Request = HttpRequest.newBuilder()
+                    .uri(URI.create(fb38Endpoint))
+                    .timeout(timeout)
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(requestJson))
+                    .build();
+            HttpResponse<String> fb38Response = httpClient.send(fb38Request, HttpResponse.BodyHandlers.ofString());
+            if (fb38Response.statusCode() == 200) {
+                response = fb38Response;
+            }
+        }
+
         if (response.statusCode() != 200) {
             String errorMsg = MinimalJson.extractString(response.body(), "message");
             throw new RuntimeException("Gemini API error (HTTP " + response.statusCode() + "): "
