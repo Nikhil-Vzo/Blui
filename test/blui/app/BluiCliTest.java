@@ -1,5 +1,9 @@
 package blui.app;
 
+import blui.swarm.SwarmEngine;
+import blui.swarm.SwarmResult;
+import blui.swarm.SwarmTask;
+
 import java.util.List;
 
 /**
@@ -19,8 +23,12 @@ public class BluiCliTest {
         testClarificationDetection();
         testSystemPromptDirectives();
         testGeminiModelDefaults();
+        testSwarmHeaderCommandIncluded();
+        testSwarmCommandParsing();
+        testSwarmTelemetryBoxFormatting();
+        testExecutiveSynthesisBoxFormatting();
 
-        System.out.println("All 9 BluiCli tests passed successfully!");
+        System.out.println("All 13 BluiCli tests passed successfully!");
     }
 
     private static void testCardWidthsAndAlignment() {
@@ -246,6 +254,87 @@ public class BluiCliTest {
                 "FALLBACK_MODEL must be gemini-3.7-flash");
 
         System.out.println("  ✓ testGeminiModelDefaults passed");
+    }
+
+    private static void testSwarmHeaderCommandIncluded() {
+        List<String> headerLines = BluiCli.buildRightSideHeaderForTesting();
+        boolean foundSwarm = false;
+        for (String line : headerLines) {
+            String stripped = stripAnsi(line);
+            if (stripped.contains("blui swarm") && stripped.contains("<goal>")) {
+                foundSwarm = true;
+                break;
+            }
+        }
+        assertCondition(foundSwarm, "Right side header COMMANDS must include 'blui swarm <goal>'");
+        System.out.println("  ✓ testSwarmHeaderCommandIncluded passed");
+    }
+
+    private static void testSwarmCommandParsing() {
+        BluiCli.SwarmOptions opt1 = BluiCli.parseSwarmCommandForTesting("swarm audit blui codebase");
+        assertCondition("audit blui codebase".equals(opt1.goal()), "Parsed goal should match: " + opt1.goal());
+        assertCondition(!opt1.boost(), "Boost should be false by default");
+
+        BluiCli.SwarmOptions opt2 = BluiCli.parseSwarmCommandForTesting("blui swarm /boost \"review security\"");
+        assertCondition("review security".equals(opt2.goal()), "Parsed goal should match: " + opt2.goal());
+        assertCondition(opt2.boost(), "Boost should be true for /boost");
+
+        BluiCli.SwarmOptions opt3 = BluiCli.parseSwarmCommandForTesting("swarm /goal 'check loom'");
+        assertCondition("check loom".equals(opt3.goal()), "Parsed goal should match: " + opt3.goal());
+
+        BluiCli.SwarmOptions opt4 = BluiCli.parseSwarmCommandForTesting("");
+        assertCondition(!opt4.goal().isBlank(), "Default goal must be provided for empty input");
+
+        System.out.println("  ✓ testSwarmCommandParsing passed");
+    }
+
+    private static void testSwarmTelemetryBoxFormatting() {
+        SwarmTask task = new SwarmTask("t1", "Audit blui", "src");
+        List<SwarmResult> results = List.of(
+            new SwarmResult("SecurityAuditor", "Security", "All clean", 250, 45, true),
+            new SwarmResult("PerformanceProfiler", "Performance", "Loom optimal", 280, 50, true)
+        );
+        SwarmEngine.SwarmReport report = new SwarmEngine.SwarmReport(task, results, "Consensus OK", 530, 0.00159, 85, false, 2);
+        List<String> box = BluiCli.buildSwarmTelemetryBoxForTesting(report, 76);
+
+        assertCondition(!box.isEmpty(), "Telemetry box must not be empty");
+        for (String line : box) {
+            int visualLen = stripAnsi(line).length();
+            assertCondition(visualLen == 76, "Box line visual length must be 76 but got " + visualLen + ": '" + stripAnsi(line) + "'");
+        }
+
+        String joined = String.join("\n", box);
+        assertCondition(joined.contains("Concurrent Agents"), "Box must contain 'Concurrent Agents'");
+        assertCondition(joined.contains("Virtual Threads"), "Box must contain 'Virtual Threads'");
+        assertCondition(joined.contains("Swarm Join Time"), "Box must contain 'Swarm Join Time'");
+        assertCondition(joined.contains("Tokens"), "Box must contain 'Tokens'");
+        assertCondition(joined.contains("Governor Status"), "Box must contain 'Governor Status'");
+
+        System.out.println("  ✓ testSwarmTelemetryBoxFormatting passed");
+    }
+
+    private static void testExecutiveSynthesisBoxFormatting() {
+        SwarmTask task = new SwarmTask("t1", "Audit blui codebase", "src");
+        List<SwarmResult> results = List.of(
+            new SwarmResult("SecurityAuditor", "Application & Sandbox Security", "FileTool workspace sandbox verified.", 250, 45, true),
+            new SwarmResult("PerformanceProfiler", "Virtual Threads & High Throughput", "Project Loom virtual threads optimal.", 280, 50, true)
+        );
+        SwarmEngine.SwarmReport report = new SwarmEngine.SwarmReport(task, results, "Consensus OK", 530, 0.00159, 85, false, 2);
+        List<String> box = BluiCli.buildExecutiveSynthesisBoxForTesting(report, 76);
+
+        assertCondition(!box.isEmpty(), "Synthesis box must not be empty");
+        for (String line : box) {
+            int visualLen = stripAnsi(line).length();
+            assertCondition(visualLen == 76, "Synthesis box line visual length must be 76 but got " + visualLen + ": '" + stripAnsi(line) + "'");
+        }
+
+        String joined = String.join("\n", box);
+        assertCondition(joined.contains("Target:"), "Synthesis box must contain Target");
+        assertCondition(joined.contains("Consensus:"), "Synthesis box must contain Consensus");
+        assertCondition(joined.contains("SecurityAuditor"), "Synthesis box must contain SecurityAuditor");
+        assertCondition(joined.contains("PerformanceProfiler"), "Synthesis box must contain PerformanceProfiler");
+
+        System.out.println("  ✓ testExecutiveSynthesisBoxFormatting passed");
     }
 
     private static String stripAnsi(String s) {

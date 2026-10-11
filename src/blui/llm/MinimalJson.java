@@ -45,11 +45,28 @@ public final class MinimalJson {
      */
     public static String extractString(String json, String key) {
         if (json == null || key == null) return null;
-        // Regex matches "key"\s*:\s*"((?:[^"\\]|\\.)*)"
-        Pattern pattern = Pattern.compile("\"" + Pattern.quote(key) + "\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"");
-        Matcher matcher = pattern.matcher(json);
-        if (matcher.find()) {
-            return unescape(matcher.group(1));
+        String search = "\"" + key + "\"";
+        int idx = json.indexOf(search);
+        if (idx == -1) return null;
+        int colon = json.indexOf(':', idx + search.length());
+        if (colon == -1) return null;
+        int quoteStart = json.indexOf('"', colon);
+        if (quoteStart == -1) return null;
+
+        StringBuilder sb = new StringBuilder();
+        boolean escaped = false;
+        for (int i = quoteStart + 1; i < json.length(); i++) {
+            char c = json.charAt(i);
+            if (escaped) {
+                sb.append(c);
+                escaped = false;
+            } else if (c == '\\') {
+                escaped = true;
+            } else if (c == '"') {
+                return unescape(sb.toString());
+            } else {
+                sb.append(c);
+            }
         }
         return null;
     }

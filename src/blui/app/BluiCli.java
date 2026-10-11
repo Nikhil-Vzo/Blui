@@ -18,6 +18,11 @@ import blui.replay.TraceStore;
 import blui.tools.FileTool;
 import blui.tools.HttpTool;
 import blui.tools.ShellTool;
+import blui.swarm.SwarmAgent;
+import blui.swarm.SwarmEngine;
+import blui.swarm.SwarmGovernor;
+import blui.swarm.SwarmResult;
+import blui.swarm.SwarmTask;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -26,11 +31,15 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Scanner;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -117,6 +126,7 @@ public class BluiCli {
         lines.add(DIM + " ──────────────────────────────────────────────────────────" + RESET);
         lines.add(BOLD + WHITE + " COMMANDS" + RESET);
         lines.add(CYAN + " blui run " + GRAY + "<goal>       " + DIM + "# execute agent loop" + RESET);
+        lines.add(CYAN + " blui swarm " + GRAY + "<goal>     " + DIM + "# parallel agent swarm" + RESET);
         lines.add(CYAN + " blui env              " + DIM + "# configure environment ('k' to keep)" + RESET);
         lines.add(CYAN + " blui traces           " + DIM + "# list saved flight ledgers" + RESET);
         lines.add(CYAN + " blui replay " + GRAY + "<id>      " + DIM + "# replay past flight trace" + RESET);
@@ -258,6 +268,8 @@ public class BluiCli {
             }
         } else if (input.matches("^(blui\\s+)?(set\\s+env|env)\\s+\\w+\\s*=.*")) {
             handleInlineEnvSet(input);
+        } else if (input.matches("^(blui\\s+)?(swarm|/swarm|boost|/boost|goal|/goal)(\\s+.*)?$")) {
+            executeSwarm(input, scanner);
         } else if (input.startsWith("run ") || input.startsWith("blui run ")) {
             String task = input.replaceFirst("^(blui run|run)\\s+", "");
             executeAgent(task, scanner);
@@ -294,6 +306,7 @@ public class BluiCli {
         writelnUtf8(BOLD + "\nAvailable Commands:" + RESET);
         writelnUtf8("  " + CYAN + "bench" + RESET + "                 - Run 500 concurrent virtual thread tasks");
         writelnUtf8("  " + CYAN + "run <goal>" + RESET + "            - Execute an agent loop with Governor and Loom");
+        writelnUtf8("  " + CYAN + "swarm <goal>" + RESET + "          - Execute parallel multi-agent swarm on virtual threads");
         writelnUtf8("  " + CYAN + "env [gemini|ollama]" + RESET + "   - Configure provider environment (Hermes-style 'k' to keep)");
         writelnUtf8("  " + CYAN + "set env <KEY>=<VAL>" + RESET + "   - Set specific variable inline in .env");
         writelnUtf8("  " + CYAN + "env show" + RESET + "              - Display current .env configuration");
@@ -879,6 +892,346 @@ public class BluiCli {
 
     static String buildSystemPromptForTesting() {
         return buildSystemPrompt();
+    }
+
+    static record SwarmOptions(String goal, boolean boost) {}
+
+    static SwarmOptions parseSwarmCommand(String input) {
+        if (input == null || input.isBlank()) {
+            return new SwarmOptions("audit blui codebase and runtime architecture", false);
+        }
+        boolean boost = input.toLowerCase(Locale.ROOT).contains("boost");
+        String stripped = input.replaceFirst("(?i)^(blui\\s+)?(swarm|/swarm|boost|/boost|goal|/goal)\\s*", "").trim();
+        stripped = stripped
+            .replaceAll("(?i)/(boost|goal)", "")
+            .replaceAll("(?i)--(boost|goal)", "")
+            .replaceAll("(?i)-(boost|goal)", "")
+            .trim();
+        String cleaned = cleanGoal(stripped);
+        if (cleaned.isBlank()) {
+            cleaned = "audit blui codebase and runtime architecture";
+        }
+        return new SwarmOptions(cleaned, boost);
+    }
+
+    public static final SwarmAgent CONCURRENCY_TESTER = new SwarmAgent(
+        "ConcurrencyTester",
+        "High-Throughput Loom Stress",
+        "Carrier thread saturation, virtual thread spawning overhead, and SLA join verification",
+        "You are the Concurrency Tester specialist. Audit high-throughput virtual thread orchestration, task saturation, and thread lifecycle overhead."
+    );
+    public static final SwarmAgent MEMORY_AUDITOR = new SwarmAgent(
+        "MemoryAuditor",
+        "JVM Heap & Allocation Profile",
+        "Zero-allocation streaming, garbage collection pressure, and footprint efficiency",
+        "You are the Memory Auditor specialist. Audit JVM heap retention, memory footprint overhead, and garbage collection pressure."
+    );
+    public static final SwarmAgent DEPENDENCY_VERIFIER = new SwarmAgent(
+        "DependencyVerifier",
+        "Zero External Deps Hardening",
+        "Standard library encapsulation, transitive hygiene, and artifact minimalism",
+        "You are the Dependency Verifier specialist. Verify 100% pure OpenJDK standard library compliance and zero external dependencies."
+    );
+    public static final SwarmAgent LATENCY_OPTIMIZER = new SwarmAgent(
+        "LatencyOptimizer",
+        "Sub-Millisecond Wall Clock",
+        "Kernel execution scheduling, IO round-trips, and critical path latency reduction",
+        "You are the Latency Optimizer specialist. Profile wall-clock latency paths and identify sub-millisecond optimization opportunities."
+    );
+
+    private static void executeSwarm(String input, Scanner scanner) {
+        SwarmOptions options = parseSwarmCommand(input);
+        String goal = options.goal();
+        boolean isBoost = options.boost();
+
+        writelnUtf8(CYAN + BOLD + "\n[SWARM] Multi-Agent Swarm Orchestrator (Project Loom Virtual Threads)" + RESET);
+        writelnUtf8(GRAY + "Target Goal: '" + WHITE + goal + GRAY + "'" + RESET);
+
+        List<SwarmAgent> agents = new ArrayList<>(SwarmAgent.defaultPersonas());
+        if (isBoost) {
+            agents.addAll(List.of(CONCURRENCY_TESTER, MEMORY_AUDITOR, DEPENDENCY_VERIFIER, LATENCY_OPTIMIZER));
+            writelnUtf8(PURPLE + BOLD + "[BOOST] ⚡ Turbo Concurrency Active: 8 Specialist Personas running on Loom Virtual Threads!" + RESET);
+        } else {
+            writelnUtf8(CYAN + "[LOOM] Concurrently dispatching " + agents.size() + " specialist personas with structured join SLA..." + RESET);
+        }
+
+        // Detect LLM provider if available
+        String apiKey = sessionApiKey != null ? sessionApiKey : EnvConfig.get("GEMINI_API_KEY");
+        LlmProvider provider = null;
+        if (apiKey != null && !apiKey.isBlank()) {
+            String customModel = EnvConfig.get("GEMINI_MODEL");
+            provider = new GeminiClient(apiKey, customModel != null ? customModel : GeminiClient.DEFAULT_MODEL, Duration.ofSeconds(8));
+            writelnUtf8(CYAN + "[BRAIN] Provider: Google Gemini (" + provider.modelName() + " via Google AI Studio)\n" + RESET);
+        } else {
+            writelnUtf8(GRAY + "[BRAIN] Simulation Mode: Zero-dependency virtual thread evaluation (pure JDK standard library)\n" + RESET);
+        }
+
+        SwarmGovernor governor = SwarmGovernor.standard();
+        Duration joinTimeout = Duration.ofSeconds(20);
+        SwarmEngine engine = new SwarmEngine(governor, provider, joinTimeout);
+        SwarmTask task = SwarmTask.of(goal);
+
+        final int agentCount = agents.size();
+        class AgentUIState {
+            final SwarmAgent agent;
+            final AtomicInteger status = new AtomicInteger(0); // 0 = WAITING, 1 = RUNNING, 2 = SUCCESS, 3 = FAILED
+            final AtomicLong startMs = new AtomicLong(0);
+            final AtomicLong durationMs = new AtomicLong(0);
+            AgentUIState(SwarmAgent agent) { this.agent = agent; }
+        }
+
+        List<AgentUIState> uiStates = new ArrayList<>();
+        Map<String, AgentUIState> stateMap = new java.util.concurrent.ConcurrentHashMap<>();
+        for (SwarmAgent a : agents) {
+            AgentUIState state = new AgentUIState(a);
+            uiStates.add(state);
+            stateMap.put(a.name(), state);
+        }
+
+        char[] spinnerFrames = {'⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'};
+
+        // Print initial lines
+        for (AgentUIState s : uiStates) {
+            writeUtf8("  " + CYAN + spinnerFrames[0] + RESET + " " + BOLD + "[" + padRight(s.agent.name(), 20) + "]" + RESET + " " + padRight(s.agent.role(), 34) + " " + DIM + "(0.00s)" + RESET + "\n");
+        }
+
+        AtomicBoolean animating = new AtomicBoolean(true);
+        long t0 = System.currentTimeMillis();
+
+        Thread animator = Thread.ofVirtual().start(() -> {
+            int frame = 1;
+            while (animating.get()) {
+                try {
+                    Thread.sleep(80);
+                } catch (InterruptedException e) {
+                    break;
+                }
+                if (!animating.get()) break;
+
+                StringBuilder sb = new StringBuilder();
+                sb.append("\033[").append(agentCount).append("A");
+
+                for (int i = 0; i < agentCount; i++) {
+                    AgentUIState s = uiStates.get(i);
+                    int st = s.status.get();
+                    char icon = spinnerFrames[frame % spinnerFrames.length];
+                    double elapsed = (st == 0 ? 0.0 : (st == 1 ? (System.currentTimeMillis() - (s.startMs.get() > 0 ? s.startMs.get() : t0)) : s.durationMs.get())) / 1000.0;
+
+                    sb.append("\r\033[K");
+                    if (st == 2) {
+                        sb.append("  ").append(GREEN).append("✓").append(RESET).append(" ")
+                          .append(BOLD).append("[").append(padRight(s.agent.name(), 20)).append("]").append(RESET).append(" ")
+                          .append(padRight(s.agent.role(), 34)).append(" ")
+                          .append(GREEN).append(String.format(Locale.US, "PASSED (%.2fs)", elapsed)).append(RESET).append("\n");
+                    } else if (st == 3) {
+                        sb.append("  ").append(RED).append("✗").append(RESET).append(" ")
+                          .append(BOLD).append("[").append(padRight(s.agent.name(), 20)).append("]").append(RESET).append(" ")
+                          .append(padRight(s.agent.role(), 34)).append(" ")
+                          .append(RED).append("HALTED").append(RESET).append("\n");
+                    } else {
+                        sb.append("  ").append(CYAN).append(icon).append(RESET).append(" ")
+                          .append(BOLD).append("[").append(padRight(s.agent.name(), 20)).append("]").append(RESET).append(" ")
+                          .append(padRight(s.agent.role(), 34)).append(" ")
+                          .append(DIM).append(String.format(Locale.US, "(%.2fs)", elapsed)).append(RESET).append("\n");
+                    }
+                }
+                writeUtf8(sb.toString());
+                frame++;
+            }
+        });
+
+        SwarmEngine.SwarmListener listener = new SwarmEngine.SwarmListener() {
+            @Override
+            public void onAgentStarted(SwarmAgent agent) {
+                AgentUIState s = stateMap.get(agent.name());
+                if (s != null) {
+                    s.startMs.set(System.currentTimeMillis());
+                    s.status.set(1);
+                }
+            }
+
+            @Override
+            public void onAgentCompleted(SwarmAgent agent, SwarmResult result) {
+                AgentUIState s = stateMap.get(agent.name());
+                if (s != null) {
+                    s.durationMs.set(result.durationMs());
+                    s.status.set(result.success() ? 2 : 3);
+                }
+            }
+
+            @Override
+            public void onAgentFailed(SwarmAgent agent, Throwable error) {
+                AgentUIState s = stateMap.get(agent.name());
+                if (s != null) {
+                    s.durationMs.set(System.currentTimeMillis() - s.startMs.get());
+                    s.status.set(3);
+                }
+            }
+        };
+
+        SwarmEngine.SwarmReport report;
+        try {
+            report = engine.runSwarm(task, agents, listener);
+        } finally {
+            animating.set(false);
+            animator.interrupt();
+            try { animator.join(200); } catch (InterruptedException ignored) {}
+        }
+
+        // Cleanly settle all agent lines to final state
+        StringBuilder finalSb = new StringBuilder();
+        finalSb.append("\033[").append(agentCount).append("A");
+        for (int i = 0; i < agentCount; i++) {
+            AgentUIState s = uiStates.get(i);
+            int st = s.status.get();
+            double elapsed = s.durationMs.get() / 1000.0;
+            finalSb.append("\r\033[K");
+            if (st == 2 || (st != 3 && !report.governorTripped())) {
+                finalSb.append("  ").append(GREEN).append("✓").append(RESET).append(" ")
+                       .append(BOLD).append("[").append(padRight(s.agent.name(), 20)).append("]").append(RESET).append(" ")
+                       .append(padRight(s.agent.role(), 34)).append(" ")
+                       .append(GREEN).append(String.format(Locale.US, "PASSED (%.2fs)", elapsed)).append(RESET).append("\n");
+            } else {
+                finalSb.append("  ").append(RED).append("✗").append(RESET).append(" ")
+                       .append(BOLD).append("[").append(padRight(s.agent.name(), 20)).append("]").append(RESET).append(" ")
+                       .append(padRight(s.agent.role(), 34)).append(" ")
+                       .append(RED).append("HALTED").append(RESET).append("\n");
+            }
+        }
+        writeUtf8(finalSb.toString());
+        writelnUtf8("");
+
+        // Display Executive Swarm Synthesis Box
+        List<String> synthesisBox = buildExecutiveSynthesisBox(report, 76);
+        for (String line : synthesisBox) {
+            writelnUtf8(line);
+        }
+        writelnUtf8("");
+
+        // Display Swarm Telemetry Box
+        List<String> telemetryBox = buildSwarmTelemetryBox(report, 76);
+        for (String line : telemetryBox) {
+            writelnUtf8(line);
+        }
+        writelnUtf8("");
+    }
+
+    static List<String> buildExecutiveSynthesisBox(SwarmEngine.SwarmReport report, int boxWidth) {
+        int inner = boxWidth - 4;
+        List<String> res = new ArrayList<>();
+
+        String title = "EXECUTIVE SWARM SYNTHESIS";
+        int dashCount = boxWidth - 5 - title.length();
+        res.add(CYAN + "┌─ " + BOLD + title + RESET + CYAN + " " + "─".repeat(Math.max(0, dashCount)) + "┐" + RESET);
+
+        String targetDesc = report.task().description();
+        String targetLine = "Target:    '" + (targetDesc.length() > inner - 14 ? targetDesc.substring(0, inner - 17) + "..." : targetDesc) + "'";
+        res.add(CYAN + "│ " + WHITE + padRight(targetLine, inner) + CYAN + " │" + RESET);
+
+        long passCount = report.results().stream().filter(SwarmResult::success).count();
+        String consensus;
+        if (report.governorTripped()) {
+            consensus = "Consensus: SWARM HALT - Governor Hard Budget Tripwire Tripped";
+        } else {
+            consensus = String.format(Locale.US, "Consensus: %d/%d Specialist Reviews Passed (Full System Clearance)",
+                passCount, report.results().size());
+        }
+        res.add(CYAN + "│ " + (report.governorTripped() ? RED : GREEN) + padRight(consensus, inner) + CYAN + " │" + RESET);
+        res.add(CYAN + "├" + "─".repeat(boxWidth - 2) + "┤" + RESET);
+
+        for (SwarmResult r : report.results()) {
+            String marker = r.success() ? "[✓ PASS]" : "[✗ FAIL]";
+            String header = marker + " " + r.agentName() + " (" + r.role() + ")";
+            if (header.length() > inner) header = header.substring(0, inner);
+            res.add(CYAN + "│ " + (r.success() ? GREEN : RED) + padRight(header, inner) + CYAN + " │" + RESET);
+
+            for (String findingLine : r.findings().lines().toList()) {
+                String clean = findingLine.trim();
+                if (clean.isEmpty()) continue;
+                for (String chunk : wrapText(clean, inner - 2)) {
+                    res.add(CYAN + "│   " + GRAY + padRight(chunk, inner - 2) + CYAN + " │" + RESET);
+                }
+            }
+            res.add(CYAN + "│ " + padRight("", inner) + CYAN + " │" + RESET);
+        }
+
+        if (res.size() > 5 && res.get(res.size() - 1).contains(CYAN + "│ " + padRight("", inner) + CYAN + " │")) {
+            res.remove(res.size() - 1);
+        }
+
+        res.add(CYAN + "└" + "─".repeat(boxWidth - 2) + "┘" + RESET);
+        return res;
+    }
+
+    static List<String> buildSwarmTelemetryBox(SwarmEngine.SwarmReport report, int boxWidth) {
+        int inner = boxWidth - 4;
+        List<String> res = new ArrayList<>();
+
+        String title = "SWARM TELEMETRY";
+        int dashCount = boxWidth - 5 - title.length();
+        res.add(CYAN + "┌─ " + BOLD + title + RESET + CYAN + " " + "─".repeat(Math.max(0, dashCount)) + "┐" + RESET);
+
+        String line1 = String.format(Locale.US, "Concurrent Agents: %d personas │ Virtual Threads: %d Loom threads",
+            report.results().size(), report.virtualThreadsSpawned());
+        String line2 = String.format(Locale.US, "Swarm Join Time:   %dms (SLA: 3s) │ Tokens: %d total",
+            report.joinDurationMs(), report.totalTokens());
+
+        String govStatus = report.governorTripped() ? "TRIPPED (Budget Cap Exceeded)" : "Nominal (Budget OK)";
+        String costFormatted = String.format(Locale.US, "$%.5f", report.totalCostUsd());
+        String line3 = String.format(Locale.US, "Governor Status:   %s │ Cost: %s",
+            govStatus, costFormatted);
+
+        res.add(CYAN + "│ " + WHITE + padRight(line1, inner) + CYAN + " │" + RESET);
+        res.add(CYAN + "│ " + WHITE + padRight(line2, inner) + CYAN + " │" + RESET);
+        res.add(CYAN + "│ " + (report.governorTripped() ? RED : GRAY) + padRight(line3, inner) + CYAN + " │" + RESET);
+        res.add(CYAN + "└" + "─".repeat(boxWidth - 2) + "┘" + RESET);
+
+        return res;
+    }
+
+    static List<String> wrapText(String text, int maxLen) {
+        List<String> result = new ArrayList<>();
+        if (text == null || text.isBlank()) {
+            return result;
+        }
+        if (text.length() <= maxLen) {
+            result.add(text);
+            return result;
+        }
+        String[] words = text.split("\\s+");
+        StringBuilder current = new StringBuilder();
+        for (String w : words) {
+            if (current.length() + w.length() + 1 > maxLen) {
+                if (current.length() > 0) {
+                    result.add(current.toString());
+                    current = new StringBuilder();
+                }
+                if (w.length() > maxLen) {
+                    result.add(w.substring(0, Math.max(0, maxLen - 3)) + "...");
+                } else {
+                    current.append(w);
+                }
+            } else {
+                if (current.length() > 0) current.append(" ");
+                current.append(w);
+            }
+        }
+        if (current.length() > 0) {
+            result.add(current.toString());
+        }
+        return result;
+    }
+
+    static List<String> buildExecutiveSynthesisBoxForTesting(SwarmEngine.SwarmReport report, int boxWidth) {
+        return buildExecutiveSynthesisBox(report, boxWidth);
+    }
+
+    static List<String> buildSwarmTelemetryBoxForTesting(SwarmEngine.SwarmReport report, int boxWidth) {
+        return buildSwarmTelemetryBox(report, boxWidth);
+    }
+
+    static SwarmOptions parseSwarmCommandForTesting(String input) {
+        return parseSwarmCommand(input);
     }
 
     private static String padRight(String s, int n) {
