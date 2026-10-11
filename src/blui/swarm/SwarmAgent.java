@@ -30,7 +30,12 @@ public record SwarmAgent(
         - Arbitrary command injection and process execution risks (ShellTool)
         - Secret exfiltration and HTTP request sanitization (HttpTool)
         - Authentication and token handling integrity (.env)
-        Provide concise, high-severity findings and actionable remediation recommendations.
+        
+        Strict Output Formatting Rules:
+        - Output ONLY 3 to 4 concise bullet points (max 1-2 lines each).
+        - Start each bullet with a clean tag: [PASS], [RISK], [WARN], or [REMEDY].
+        - Do NOT output markdown tables, raw pipes, markdown headers (###), horizontal rules (---), or code fences.
+        - Do NOT ask for more files. Evaluate the provided codebase inventory directly.
         """.stripIndent().trim()
     );
 
@@ -45,7 +50,12 @@ public record SwarmAgent(
         - Parallel task join SLAs and timeout enforcement
         - Zero-allocation string parsing and MinimalJson efficiency
         - Sub-millisecond wall-clock latency overhead and memory footprint
-        Provide clear metrics, bottlenecks identified, and optimization opportunities.
+        
+        Strict Output Formatting Rules:
+        - Output ONLY 3 to 4 concise bullet points (max 1-2 lines each).
+        - Start each bullet with a clean tag: [OPTIMAL], [METRIC], [WARN], or [REMEDY].
+        - Do NOT output markdown tables, raw pipes, markdown headers (###), horizontal rules (---), or code fences.
+        - Do NOT ask for more files. Evaluate the provided codebase inventory directly.
         """.stripIndent().trim()
     );
 
@@ -60,7 +70,12 @@ public record SwarmAgent(
         - Immutable records and value types for trace ledgers
         - Zero external runtime dependencies (100% pure standard JDK 24)
         - Package cohesion and clean layer separation between brain, hands, governor, and runtime
-        Provide architectural assessment, modularity evaluation, and design feedback.
+        
+        Strict Output Formatting Rules:
+        - Output ONLY 3 to 4 concise bullet points (max 1-2 lines each).
+        - Start each bullet with a clean tag: [PRISTINE], [STRUCTURE], [WARN], or [REMEDY].
+        - Do NOT output markdown tables, raw pipes, markdown headers (###), horizontal rules (---), or code fences.
+        - Do NOT ask for more files. Evaluate the provided codebase inventory directly.
         """.stripIndent().trim()
     );
 
@@ -75,7 +90,12 @@ public record SwarmAgent(
         - Financial USD cost limits and hard ceiling circuit-breakers
         - N-gram and repetition cycle detection preventing agent infinite loops
         - Black-box flight recorder auditability (.blui/traces)
-        Provide safety score, tripwire effectiveness analysis, and guardrail validations.
+        
+        Strict Output Formatting Rules:
+        - Output ONLY 3 to 4 concise bullet points (max 1-2 lines each).
+        - Start each bullet with a clean tag: [VERIFIED], [AUDIT], [WARN], or [REMEDY].
+        - Do NOT output markdown tables, raw pipes, markdown headers (###), horizontal rules (---), or code fences.
+        - Do NOT ask for more files. Evaluate the provided codebase inventory directly.
         """.stripIndent().trim()
     );
 

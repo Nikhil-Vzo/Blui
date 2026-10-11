@@ -964,16 +964,16 @@ public class BluiCli {
         // 2. Strip leading swarm or /swarm if present
         rest = rest.replaceFirst("(?i)^(swarm|/swarm)\\s*", "").trim();
 
-        // 3. Check for boost flag (/boost, --boost, -boost, or standalone boost keyword at start)
+        // 3. Check for boost / turbo / 8 agents flag
         boolean boost = false;
-        Pattern boostFlag = Pattern.compile("(?i)(^|\\s)(/(?:boost)|--(?:boost)|-(?:boost))(\\s+|$)");
+        Pattern boostFlag = Pattern.compile("(?i)(^|\\s)(/(?:boost|turbo)|--(?:boost|turbo|agents\\s+8)|-(?:boost|turbo)|(?:8\\s+agents)|(?:8\\s+personas))(\\s+|$)");
         Matcher mBoost = boostFlag.matcher(rest);
         if (mBoost.find()) {
             boost = true;
             rest = (rest.substring(0, mBoost.start()) + " " + rest.substring(mBoost.end())).trim();
-        } else if (rest.matches("(?i)^(/boost|boost)(\\s+.*|$)")) {
+        } else if (rest.matches("(?i)^(/boost|boost|/turbo|turbo|--boost|--turbo|--agents\\s+8|8)(\\s+.*|$)")) {
             boost = true;
-            rest = rest.replaceFirst("(?i)^(/boost|boost)\\s*", "").trim();
+            rest = rest.replaceFirst("(?i)^(/boost|boost|/turbo|turbo|--boost|--turbo|--agents\\s+8|8)\\s*", "").trim();
         }
 
         // 4. Check for goal flag (/goal, --goal, -goal, or leading goal keyword)
@@ -1192,19 +1192,59 @@ public class BluiCli {
         }
         writelnUtf8("");
 
+        int boxWidth = resolveBoxWidth();
         // Display Executive Swarm Synthesis Box
-        List<String> synthesisBox = buildExecutiveSynthesisBox(report, 76);
+        List<String> synthesisBox = buildExecutiveSynthesisBox(report, boxWidth);
         for (String line : synthesisBox) {
             writelnUtf8(line);
         }
         writelnUtf8("");
 
         // Display Swarm Telemetry Box
-        List<String> telemetryBox = buildSwarmTelemetryBox(report, 76);
+        List<String> telemetryBox = buildSwarmTelemetryBox(report, boxWidth);
         for (String line : telemetryBox) {
             writelnUtf8(line);
         }
         writelnUtf8("");
+    }
+
+    static int resolveBoxWidth() {
+        String envCols = System.getenv("COLUMNS");
+        if (envCols != null) {
+            try {
+                int c = Integer.parseInt(envCols.trim());
+                if (c >= 80) return Math.min(c - 2, 120);
+            } catch (NumberFormatException ignored) {}
+        }
+        return 104;
+    }
+
+    static String sanitizeFindingLine(String line) {
+        if (line == null) return "";
+        String s = line.trim();
+        if (s.isEmpty()) return "";
+        // Skip markdown horizontal dividers
+        if (s.matches("^[-*_~=]{3,}$")) return "";
+        // Skip markdown table separators like |---|---|
+        if (s.matches("^\\|[\\s-:|]+\\|$")) return "";
+        // Strip markdown header hashes: ### Heading -> Heading
+        s = s.replaceAll("^#{1,6}\\s*", "");
+        // Strip bold markers: **Text** -> Text
+        s = s.replaceAll("\\*\\*(.*?)\\*\\*", "$1");
+        // Convert markdown pipe table rows to clean readable bullet
+        if (s.startsWith("|") && s.endsWith("|")) {
+            String[] cells = s.substring(1, s.length() - 1).split("\\|");
+            List<String> validCells = new ArrayList<>();
+            for (String c : cells) {
+                String trimmed = c.trim();
+                if (!trimmed.isEmpty() && !trimmed.matches("^[-:]+$")) {
+                    validCells.add(trimmed);
+                }
+            }
+            if (validCells.isEmpty()) return "";
+            s = "• " + String.join(" ─ ", validCells);
+        }
+        return s.trim();
     }
 
     static List<String> buildExecutiveSynthesisBox(SwarmEngine.SwarmReport report, int boxWidth) {
@@ -1237,7 +1277,7 @@ public class BluiCli {
             res.add(CYAN + "│ " + (r.success() ? GREEN : RED) + padRight(header, inner) + CYAN + " │" + RESET);
 
             for (String findingLine : r.findings().lines().toList()) {
-                String clean = findingLine.trim();
+                String clean = sanitizeFindingLine(findingLine);
                 if (clean.isEmpty()) continue;
                 for (String chunk : wrapText(clean, inner - 2)) {
                     res.add(CYAN + "│   " + GRAY + padRight(chunk, inner - 2) + CYAN + " │" + RESET);
