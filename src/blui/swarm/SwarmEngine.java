@@ -248,10 +248,11 @@ public class SwarmEngine {
             SwarmResult mockRes = executeMockAgent(task, agent, startTime);
             String note;
             String msg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+            String pName = (provider != null && provider.modelName() != null && !provider.modelName().isBlank()) ? provider.modelName() : "cloud LLM";
             if (msg.contains("429") || msg.contains("quota") || msg.contains("Quota")) {
-                note = "[NOTE] Live Gemini API quota exceeded (HTTP 429); evaluated via offline Loom simulation.\n";
+                note = "[NOTE] Live " + pName + " quota exceeded (HTTP 429); evaluated via offline Loom simulation.\n";
             } else if (msg.contains("timeout") || msg.contains("Timeout")) {
-                note = "[NOTE] Live Gemini API call timed out; evaluated via high-speed Loom simulation.\n";
+                note = "[NOTE] Live " + pName + " call timed out; evaluated via high-speed Loom simulation.\n";
             } else {
                 note = "[NOTE] Live LLM unavailable (" + msg + "); evaluated via offline Loom simulation.\n";
             }
