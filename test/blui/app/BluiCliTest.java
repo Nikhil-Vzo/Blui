@@ -20,13 +20,13 @@ public class BluiCliTest {
 
     private static void testCardWidthsAndAlignment() {
         List<String[]> entries = List.of(
-                new String[]{"JVM", "OpenJDK 24"},
-                new String[]{"Loom", "Virtual Th."},
-                new String[]{"Governor", "Circuit Brk"}
+                new String[]{"JVM", "OpenJDK 24.0.2"},
+                new String[]{"Loom", "Virtual Threads"},
+                new String[]{"Governor", "Circuit Breaker"}
         );
 
-        int cardWidth = 25;
-        List<String> card = BluiCli.buildCardForTesting("RUNTIME", entries, cardWidth);
+        int cardWidth = 32;
+        List<String> card = BluiCli.buildCardForTesting("RUNTIME STATUS", entries, cardWidth);
 
         assertCondition(card.size() == entries.size() + 2, "Card should have header, entries, and footer");
         for (String line : card) {
@@ -35,9 +35,9 @@ public class BluiCliTest {
                     "Card line visual length must be exactly " + cardWidth + " but got " + visualLen + ": '" + stripAnsi(line) + "'");
         }
 
-        // Test 3 cards side-by-side: 25 + 1 + 25 + 1 + 25 = 77 cols (fits inside 80 cols)
+        // Test 3 cards side-by-side: 32 + 1 + 32 + 1 + 32 = 98 cols
         int totalWidth = (cardWidth * 3) + 2;
-        assertCondition(totalWidth <= 80, "Three cards side-by-side must not exceed 80 columns");
+        assertCondition(totalWidth == 98, "Three cards side-by-side must be exactly 98 columns");
 
         System.out.println("  ✓ testCardWidthsAndAlignment passed");
     }
@@ -46,8 +46,8 @@ public class BluiCliTest {
         List<String> headerLines = BluiCli.buildRightSideHeaderForTesting();
         for (String line : headerLines) {
             int visualLen = stripAnsi(line).length();
-            assertCondition(visualLen <= 32, 
-                    "Header line must be <= 32 columns to fit beside 44-col mascot without wrapping. Got " + visualLen + ": '" + stripAnsi(line) + "'");
+            assertCondition(visualLen <= 62, 
+                    "Header line must be <= 62 columns. Got " + visualLen + ": '" + stripAnsi(line) + "'");
         }
         System.out.println("  ✓ testRightSideHeaderWidth passed");
     }

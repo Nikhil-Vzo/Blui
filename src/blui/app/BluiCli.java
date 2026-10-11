@@ -74,11 +74,11 @@ public class BluiCli {
     public static void printBanner() {
         List<String> imageLines = new ArrayList<>();
         try {
-            imageLines = TerminalArt.renderLines("assets/blui.png", 44, 16);
+            imageLines = TerminalArt.renderLines("assets/blui.png", 46, 16);
         } catch (IOException e) {
             // Fallback placeholder if image not found
             for (int i = 0; i < 16; i++) {
-                imageLines.add(" ".repeat(44));
+                imageLines.add(" ".repeat(46));
             }
         }
 
@@ -88,9 +88,9 @@ public class BluiCli {
         StringBuilder sb = new StringBuilder();
 
         for (int i = 0; i < maxLines; i++) {
-            String img = i < imageLines.size() ? imageLines.get(i) : " ".repeat(44);
+            String img = i < imageLines.size() ? imageLines.get(i) : " ".repeat(46);
             String txt = i < textLines.size() ? textLines.get(i) : "";
-            sb.append(img).append("  ").append(txt).append("\n");
+            sb.append(img).append("   ").append(txt).append("\n");
         }
 
         try {
@@ -107,20 +107,20 @@ public class BluiCli {
         lines.add(CYAN + BOLD + " █▀▄ █ █ █ ▄    " + RESET);
         lines.add(CYAN + BOLD + " █ █ █ █ █ █    " + RESET);
         lines.add(CYAN + BOLD + " ▀▀▀ ▀  ▀▀ ▀    " + RESET);
-        lines.add(DIM + GRAY + " AGENT RUNTIME & HARNESS" + RESET);
+        lines.add(DIM + GRAY + " AI AGENT RUNTIME & SAFETY HARNESS" + RESET);
         lines.add("");
 
-        lines.add(DIM + " ─────────────────────────────" + RESET);
+        lines.add(DIM + " ──────────────────────────────────────────────────────────" + RESET);
         lines.add(BOLD + WHITE + " COMMANDS" + RESET);
-        lines.add(CYAN + " blui run " + GRAY + "<goal> " + DIM + "# run agent" + RESET);
-        lines.add(CYAN + " blui env         " + DIM + "# set keys" + RESET);
-        lines.add(CYAN + " blui traces      " + DIM + "# ledgers" + RESET);
-        lines.add(CYAN + " blui replay " + GRAY + "<id> " + DIM + "# replay" + RESET);
-        lines.add(CYAN + " blui bench       " + DIM + "# 500 threads" + RESET);
-        lines.add(CYAN + " blui status      " + DIM + "# diagnostics" + RESET);
-        lines.add(CYAN + " blui exit        " + DIM + "# exit shell" + RESET);
-        lines.add(DIM + " ─────────────────────────────" + RESET);
-        lines.add(DIM + GRAY + " v0.1.0-alpha │ Pure Java 24" + RESET);
+        lines.add(CYAN + " blui run " + GRAY + "<goal>       " + DIM + "# execute agent loop" + RESET);
+        lines.add(CYAN + " blui env              " + DIM + "# configure environment ('k' to keep)" + RESET);
+        lines.add(CYAN + " blui traces           " + DIM + "# list saved flight ledgers" + RESET);
+        lines.add(CYAN + " blui replay " + GRAY + "<id>      " + DIM + "# replay past flight trace" + RESET);
+        lines.add(CYAN + " blui bench            " + DIM + "# spawn 500 virtual threads" + RESET);
+        lines.add(CYAN + " blui status           " + DIM + "# reprint runtime diagnostics" + RESET);
+        lines.add(CYAN + " blui exit             " + DIM + "# terminate shell session" + RESET);
+        lines.add(DIM + " ──────────────────────────────────────────────────────────" + RESET);
+        lines.add(DIM + GRAY + " v0.1.0-alpha │ Pure Java 24 (Zero external deps)" + RESET);
         lines.add("");
 
         return lines;
@@ -134,31 +134,29 @@ public class BluiCli {
         String arch = System.getProperty("os.arch");
         String javaVer = System.getProperty("java.version");
 
-        String javaVerShort = javaVer.contains(".") ? javaVer.substring(0, javaVer.indexOf('.', javaVer.indexOf('.') + 1)) : javaVer;
-        List<String> card1 = buildCard("RUNTIME", List.of(
-            new String[]{"JVM", "OpenJDK " + javaVerShort},
-            new String[]{"Loom", "Virtual Th."},
-            new String[]{"Gov", "Circuit Brk"},
-            new String[]{"Ledger", "In-Memory"},
-            new String[]{"Runner", "Virt Pool"}
-        ), 25);
+        List<String> card1 = buildCard("RUNTIME STATUS", List.of(
+            new String[]{"JVM", "OpenJDK " + javaVer},
+            new String[]{"Loom", "Virtual Threads"},
+            new String[]{"Governor", "Circuit Breaker"},
+            new String[]{"Ledger", "In-Memory Trace"},
+            new String[]{"Runner", "Virtual Pool"}
+        ), 32);
 
-        String osShort = os.length() > 11 ? os.substring(0, 11) : os;
         List<String> card2 = buildCard("SYSTEM", List.of(
-            new String[]{"OS", osShort},
+            new String[]{"OS", os},
             new String[]{"Arch", arch},
             new String[]{"CPU", cores + " Cores"},
-            new String[]{"Heap", heapAllocMb + "M/" + heapMaxMb + "M"},
-            new String[]{"UTF8", "CP65001"}
-        ), 25);
+            new String[]{"Heap", heapAllocMb + "M / " + heapMaxMb + "M"},
+            new String[]{"Encoding", "UTF-8 (CP65001)"}
+        ), 32);
 
         List<String> card3 = buildCard("REPOSITORY", List.of(
-            new String[]{"Repo", "Nikhil-Vzo"},
+            new String[]{"Repo", "Nikhil-Vzo/Blui"},
             new String[]{"Lang", "Java 24 LTS"},
-            new String[]{"Deps", "Zero (Std)"},
+            new String[]{"Deps", "Zero (Standard)"},
             new String[]{"License", "Apache 2.0"},
-            new String[]{"Ver", "0.1.0-alpha"}
-        ), 25);
+            new String[]{"Version", "0.1.0-alpha"}
+        ), 32);
 
         StringBuilder sb = new StringBuilder("\n");
         for (int i = 0; i < card1.size(); i++) {
@@ -177,7 +175,7 @@ public class BluiCli {
         card.add("┌─ " + title + " " + "─".repeat(Math.max(0, dashCount)) + "┐");
 
         int innerWidth = width - 6; // 6 chars for "│ ● " (4) and " │" (2)
-        int keyWidth = 7;
+        int keyWidth = 9;
         int valWidth = innerWidth - keyWidth - 1;
 
         for (String[] entry : entries) {
