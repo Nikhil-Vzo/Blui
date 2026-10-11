@@ -17,8 +17,22 @@ public class EnvConfigTest {
         testMasking();
         testLoadAndSaveEnv();
         testInlineSet();
+        testStreamlinedVariableLists();
 
-        System.out.println("All 4 EnvConfig tests passed successfully!");
+        System.out.println("All 5 EnvConfig tests passed successfully!");
+    }
+
+    private static void testStreamlinedVariableLists() {
+        assertCondition(EnvConfig.GEMINI_VARS.size() == 1, "GEMINI_VARS should only contain GEMINI_API_KEY");
+        assertCondition("GEMINI_API_KEY".equals(EnvConfig.GEMINI_VARS.get(0).key()), "GEMINI_VARS should be GEMINI_API_KEY");
+
+        assertCondition(EnvConfig.OLLAMA_VARS.size() == 1, "OLLAMA_VARS should only contain OLLAMA_MODEL");
+        assertCondition("OLLAMA_MODEL".equals(EnvConfig.OLLAMA_VARS.get(0).key()), "OLLAMA_VARS should be OLLAMA_MODEL");
+
+        assertCondition(EnvConfig.MANAGED_VARS.size() == 2, "MANAGED_VARS should contain only 2 essentials");
+        assertCondition(EnvConfig.ADVANCED_VARS.size() == 4, "ADVANCED_VARS should contain all 4 settings");
+
+        System.out.println("  ✓ testStreamlinedVariableLists passed");
     }
 
     private static void testKeepChoice() {

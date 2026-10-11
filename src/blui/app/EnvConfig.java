@@ -21,16 +21,19 @@ public final class EnvConfig {
     public record VariableDef(String key, String description, boolean isSecret, String defaultValue) {}
 
     public static final List<VariableDef> GEMINI_VARS = List.of(
-            new VariableDef("GEMINI_API_KEY", "Google Gemini API Key (AI Studio)", true, ""),
-            new VariableDef("GEMINI_MODEL", "Gemini Model (Default: gemini-3.8-flash)", false, "gemini-3.8-flash")
+            new VariableDef("GEMINI_API_KEY", "Google Gemini API Key (AI Studio)", true, "")
     );
 
     public static final List<VariableDef> OLLAMA_VARS = List.of(
-            new VariableDef("OLLAMA_HOST", "Local Ollama Host Endpoint", false, "http://localhost:11434"),
-            new VariableDef("OLLAMA_MODEL", "Local Ollama Model Name", false, "llama3.2")
+            new VariableDef("OLLAMA_MODEL", "Local Ollama Model Name (Default: llama3.2)", false, "llama3.2")
     );
 
     public static final List<VariableDef> MANAGED_VARS = List.of(
+            new VariableDef("GEMINI_API_KEY", "Google Gemini API Key (AI Studio)", true, ""),
+            new VariableDef("OLLAMA_MODEL", "Local Ollama Model Name (Default: llama3.2)", false, "llama3.2")
+    );
+
+    public static final List<VariableDef> ADVANCED_VARS = List.of(
             new VariableDef("GEMINI_API_KEY", "Google Gemini API Key (AI Studio)", true, ""),
             new VariableDef("GEMINI_MODEL", "Gemini Model (Default: gemini-3.8-flash)", false, "gemini-3.8-flash"),
             new VariableDef("OLLAMA_HOST", "Local Ollama Host Endpoint", false, "http://localhost:11434"),
@@ -45,6 +48,7 @@ public final class EnvConfig {
     private static final String RED = "\033[38;2;248;113;113m";
     private static final String YELLOW = "\033[38;2;251;191;36m";
     private static final String BLUE = "\033[38;2;96;165;250m";
+    private static final String PURPLE = "\033[38;2;192;132;252m";
     private static final String GRAY = "\033[38;2;148;163;184m";
     private static final String WHITE = "\033[38;2;248;250;252m";
 
@@ -181,11 +185,12 @@ public final class EnvConfig {
         if (targetProvider == null || targetProvider.isBlank()) {
             out.accept("\n" + CYAN + "┌─ ENVIRONMENT SETUP ────────────────────────────────────────────────┐" + RESET);
             out.accept(CYAN + "│ " + WHITE + "Choose provider to configure:                                      " + CYAN + "│" + RESET);
-            out.accept(CYAN + "│   " + GREEN + "[1] Google Gemini" + GRAY + " (API Key, Model)                               " + CYAN + "│" + RESET);
-            out.accept(CYAN + "│   " + BLUE + "[2] Local Ollama" + GRAY + "  (Host Endpoint, Model)                         " + CYAN + "│" + RESET);
-            out.accept(CYAN + "│   " + YELLOW + "[3] All Settings" + GRAY + "  (Configure everything)                         " + CYAN + "│" + RESET);
+            out.accept(CYAN + "│   " + GREEN + "[1] Google Gemini" + GRAY + " (API Key)                                      " + CYAN + "│" + RESET);
+            out.accept(CYAN + "│   " + BLUE + "[2] Local Ollama" + GRAY + "  (Model Name)                                   " + CYAN + "│" + RESET);
+            out.accept(CYAN + "│   " + YELLOW + "[3] Both Providers" + GRAY + " (Gemini Key + Ollama Model)                     " + CYAN + "│" + RESET);
+            out.accept(CYAN + "│   " + PURPLE + "[4] Advanced" + GRAY + "       (All Settings & Endpoints)                      " + CYAN + "│" + RESET);
             out.accept(CYAN + "└────────────────────────────────────────────────────────────────────┘" + RESET);
-            outInline.accept(BOLD + "Enter choice [1-3] (Default: 1 for Gemini): " + RESET);
+            outInline.accept(BOLD + "Enter choice [1-4] (Default: 1 for Gemini): " + RESET);
 
             String choice = "";
             if (scanner.hasNextLine()) {
@@ -195,9 +200,12 @@ public final class EnvConfig {
             if ("2".equals(choice) || "ollama".equalsIgnoreCase(choice)) {
                 targetVars = OLLAMA_VARS;
                 providerTitle = "Local Ollama";
-            } else if ("3".equals(choice) || "all".equalsIgnoreCase(choice)) {
+            } else if ("3".equals(choice) || "both".equalsIgnoreCase(choice)) {
                 targetVars = MANAGED_VARS;
-                providerTitle = "All Settings";
+                providerTitle = "Both Providers";
+            } else if ("4".equals(choice) || "advanced".equalsIgnoreCase(choice) || "all".equalsIgnoreCase(choice)) {
+                targetVars = ADVANCED_VARS;
+                providerTitle = "Advanced Settings";
             } else {
                 targetVars = GEMINI_VARS;
                 providerTitle = "Google Gemini";
@@ -208,6 +216,9 @@ public final class EnvConfig {
         } else if ("ollama".equalsIgnoreCase(targetProvider)) {
             targetVars = OLLAMA_VARS;
             providerTitle = "Local Ollama";
+        } else if ("advanced".equalsIgnoreCase(targetProvider) || "all".equalsIgnoreCase(targetProvider)) {
+            targetVars = ADVANCED_VARS;
+            providerTitle = "Advanced Settings";
         }
 
         out.accept("\n" + CYAN + "─ Configuring " + providerTitle + " ────────────────────────────────────────" + RESET);
@@ -266,7 +277,7 @@ public final class EnvConfig {
         Map<String, String> env = load(DEFAULT_ENV_PATH);
 
         out.accept("\n" + CYAN + "┌─ CURRENT ENVIRONMENT (.env) ───────────────────────────────────────┐" + RESET);
-        for (VariableDef def : MANAGED_VARS) {
+        for (VariableDef def : ADVANCED_VARS) {
             String val = env.get(def.key());
             if (val == null && System.getenv(def.key()) != null) {
                 val = System.getenv(def.key()) + " (from OS env)";

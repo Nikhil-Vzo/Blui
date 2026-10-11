@@ -238,7 +238,7 @@ public class BluiCli {
         } else if (input.equalsIgnoreCase("env show") || input.equalsIgnoreCase("blui env show")
                 || input.equalsIgnoreCase("env list") || input.equalsIgnoreCase("show env")) {
             EnvConfig.printCurrent(BluiCli::writelnUtf8);
-        } else if (input.toLowerCase().matches("^(blui\\s+)?(env|set\\s+env|config)\\s+(gemini|ollama|all)$")) {
+        } else if (input.toLowerCase().matches("^(blui\\s+)?(env|set\\s+env|config)\\s+(gemini|ollama|both|all|advanced)$")) {
             String target = input.replaceFirst("^(blui\\s+)?(env|set\\s+env|config)\\s+", "").trim().toLowerCase();
             Map<String, String> updated = EnvConfig.runInteractiveWizard(scanner, BluiCli::writelnUtf8, BluiCli::writeUtf8, target);
             if (updated.containsKey("GEMINI_API_KEY")) {
