@@ -366,7 +366,7 @@ public class BluiCli {
         LlmProvider provider = null;
         if (apiKey != null && !apiKey.isBlank()) {
             String customModel = EnvConfig.get("GEMINI_MODEL");
-            provider = new GeminiClient(apiKey, customModel != null ? customModel : "gemini-3.5-flash", Duration.ofSeconds(30));
+            provider = new GeminiClient(apiKey, customModel != null ? customModel : "gemini-3.8-flash", Duration.ofMinutes(2));
             writelnUtf8(CYAN + "\n[BRAIN] Provider: Google Gemini (" + provider.modelName() + " via Google AI Studio)" + RESET);
         } else {
             String ollamaHost = EnvConfig.get("OLLAMA_HOST");
@@ -411,7 +411,7 @@ public class BluiCli {
                INPUT: <command>
             2. FileTool: Filesystem operations jailed to workspace. Format:
                TOOL: FileTool
-               INPUT: read <path> | write <path> <content> | append <path> <content> | list <path>
+               INPUT: read <path> | write <path> <content> | append <path> <content> | list <path> | mkdir <path>
             3. HttpTool: HTTP GET/POST web fetcher. Format:
                TOOL: HttpTool
                INPUT: get <url> | post <url> <body>

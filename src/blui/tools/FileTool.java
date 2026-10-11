@@ -70,7 +70,13 @@ public final class FileTool implements Tool {
                         yield success(listing.isEmpty() ? "(empty directory)" : listing, start);
                     }
                 }
-                default -> error("Unknown action '" + action + "'. Supported: read, write, append, list", start);
+                case "mkdir" -> {
+                    if (parts.length < 2) yield error("Usage: mkdir <dir-path>", start);
+                    Path target = resolveSafe(parts[1]);
+                    Files.createDirectories(target);
+                    yield success("Directory created successfully: " + parts[1], start);
+                }
+                default -> error("Unknown action '" + action + "'. Supported: read, write, append, list, mkdir", start);
             };
         } catch (SecurityException se) {
             return error("Security Violation: " + se.getMessage(), start);

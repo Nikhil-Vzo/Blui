@@ -15,8 +15,8 @@ import java.util.regex.Pattern;
  */
 public final class GeminiClient implements LlmProvider {
 
-    private static final String DEFAULT_MODEL = "gemini-3.5-flash";
-    private static final String FALLBACK_MODEL = "gemini-3.8-flash";
+    private static final String DEFAULT_MODEL = "gemini-3.8-flash";
+    private static final String FALLBACK_MODEL = "gemini-3.5-flash";
     private static final String BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models/";
 
     private final String apiKey;
@@ -25,19 +25,19 @@ public final class GeminiClient implements LlmProvider {
     private final Duration timeout;
 
     public GeminiClient() {
-        this(System.getenv("GEMINI_API_KEY"), resolveDefaultModel(), Duration.ofSeconds(30));
+        this(System.getenv("GEMINI_API_KEY"), resolveDefaultModel(), Duration.ofMinutes(2));
     }
 
     public GeminiClient(String apiKey) {
-        this(apiKey, resolveDefaultModel(), Duration.ofSeconds(30));
+        this(apiKey, resolveDefaultModel(), Duration.ofMinutes(2));
     }
 
     public GeminiClient(String apiKey, String model, Duration timeout) {
         this.apiKey = apiKey;
         this.model = model != null && !model.isBlank() ? model : resolveDefaultModel();
-        this.timeout = timeout != null ? timeout : Duration.ofSeconds(30);
+        this.timeout = timeout != null ? timeout : Duration.ofMinutes(2);
         this.httpClient = HttpClient.newBuilder()
-                .connectTimeout(this.timeout)
+                .connectTimeout(Duration.ofSeconds(15))
                 .build();
     }
 
