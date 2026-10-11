@@ -16,6 +16,7 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * High-throughput multi-agent swarm orchestrator powered by Project Loom virtual threads.
@@ -64,6 +65,18 @@ public class SwarmEngine {
         this.joinTimeout = Objects.requireNonNull(joinTimeout, "joinTimeout cannot be null");
     }
 
+    public static boolean isAmbiguousGoal(String goal) {
+        return SwarmAgent.isAmbiguousGoal(goal);
+    }
+
+    public static List<SwarmAgent> derivePersonas(String goal, boolean boost) {
+        return SwarmAgent.derivePersonas(goal, boost);
+    }
+
+    public static List<SwarmAgent> derivePersonas(String goal) {
+        return SwarmAgent.derivePersonas(goal, false);
+    }
+
     /**
      * Executes the swarm with the specified task and agent personas.
      */
@@ -79,12 +92,19 @@ public class SwarmEngine {
         Objects.requireNonNull(agents, "agents cannot be null");
         Objects.requireNonNull(listener, "listener cannot be null");
 
+        if (isAmbiguousGoal(task.description())) {
+            throw new IllegalArgumentException(
+                "Ambiguous swarm goal '" + task.description() + "'. Please provide a specific objective (e.g. 'audit ./src', 'design distributed rate limiter')."
+            );
+        }
+
         if (agents.isEmpty()) {
             return new SwarmReport(task, List.of(), "Empty swarm - zero specialist agents configured.", 0, 0.0, 0, false, 0);
         }
 
         long swarmStartTime = System.currentTimeMillis();
         AtomicBoolean budgetTripped = new AtomicBoolean(governor.isTripped());
+        AtomicReference<String> providerFailure = new AtomicReference<>(null);
 
         // Fast-fail if governor budget is already breached before dispatch
         if (budgetTripped.get()) {
@@ -103,7 +123,7 @@ public class SwarmEngine {
         }
 
         List<SwarmResult> results = Collections.synchronizedList(new ArrayList<>());
-        List<Future<SwarmResult>> futures = new ArrayList<>();
+        List<Future<SwarmResult>> futures = Collections.synchronizedList(new ArrayList<>());
 
         // Use Project Loom virtual-thread executor powered by Thread.ofVirtual()
         ThreadFactory virtualFactory = Thread.ofVirtual().name("blui-swarm-agent-", 1).factory();
@@ -119,19 +139,25 @@ public class SwarmEngine {
 
                         SwarmResult res;
                         if (provider != null) {
-                            res = executeLiveAgent(task, agent, agentStart);
+                            res = executeLiveAgent(task, agent, agentStart, futures, providerFailure);
                         } else {
                             res = executeMockAgent(task, agent, agentStart);
                         }
 
                         results.add(res);
-                        listener.onAgentCompleted(agent, res);
+                        if (res.success()) {
+                            listener.onAgentCompleted(agent, res);
+                        } else {
+                            listener.onAgentFailed(agent, new RuntimeException(res.findings()));
+                        }
                         return res;
                     } catch (SwarmGovernor.SwarmBudgetExceededException e) {
                         budgetTripped.set(true);
                         // Instantly cancel other running agents on virtual threads
-                        for (Future<?> f : futures) {
-                            f.cancel(true);
+                        synchronized (futures) {
+                            for (Future<?> f : futures) {
+                                f.cancel(true);
+                            }
                         }
                         long dur = System.currentTimeMillis() - agentStart;
                         SwarmResult fail = SwarmResult.failure(agent.name(), agent.role(), "Circuit Breaker Trip: " + e.getMessage(), dur);
@@ -159,13 +185,22 @@ public class SwarmEngine {
                 } catch (TimeoutException te) {
                     f.cancel(true);
                     long elapsed = System.currentTimeMillis() - swarmStartTime;
-                    SwarmResult mockRes = executeMockAgent(task, agent, System.currentTimeMillis() - elapsed);
-                    String note = "[NOTE] Swarm join SLA reached; completed via Project Loom virtual thread simulation.\n";
-                    SwarmResult toRes = new SwarmResult(agent.name(), agent.role(), note + mockRes.findings(), mockRes.tokens(), elapsed, true);
-                    if (results.stream().noneMatch(r -> r.agentName().equals(agent.name()))) {
-                        results.add(toRes);
+                    if (provider != null) {
+                        String errMsg = "Provider timeout: join SLA reached before live LLM response";
+                        SwarmResult toRes = SwarmResult.failure(agent.name(), agent.role(), errMsg, elapsed);
+                        if (results.stream().noneMatch(r -> r.agentName().equals(agent.name()))) {
+                            results.add(toRes);
+                        }
+                        listener.onAgentFailed(agent, te);
+                    } else {
+                        SwarmResult mockRes = executeMockAgent(task, agent, System.currentTimeMillis() - elapsed);
+                        String note = "[NOTE] Swarm join SLA reached; completed via Project Loom virtual thread simulation.\n";
+                        SwarmResult toRes = new SwarmResult(agent.name(), agent.role(), note + mockRes.findings(), mockRes.tokens(), elapsed, true);
+                        if (results.stream().noneMatch(r -> r.agentName().equals(agent.name()))) {
+                            results.add(toRes);
+                        }
+                        listener.onAgentCompleted(agent, toRes);
                     }
-                    listener.onAgentCompleted(agent, toRes);
                 } catch (InterruptedException ie) {
                     Thread.currentThread().interrupt();
                     SwarmResult intRes = SwarmResult.failure(agent.name(), agent.role(), "Interrupted", 0);
@@ -174,9 +209,14 @@ public class SwarmEngine {
                     }
                     listener.onAgentFailed(agent, ie);
                 } catch (java.util.concurrent.CancellationException ce) {
-                    String msg = (budgetTripped.get() || governor.isTripped())
-                        ? "Circuit Breaker Trip: Swarm budget hard cap reached"
-                        : "Task cancelled";
+                    String msg;
+                    if (budgetTripped.get() || governor.isTripped()) {
+                        msg = "Circuit Breaker Trip: Swarm budget hard cap reached";
+                    } else if (providerFailure.get() != null) {
+                        msg = "Provider failure: " + providerFailure.get();
+                    } else {
+                        msg = "Task cancelled";
+                    }
                     SwarmResult cancelRes = SwarmResult.failure(agent.name(), agent.role(), msg, 0);
                     if (results.stream().noneMatch(r -> r.agentName().equals(agent.name()))) {
                         results.add(cancelRes);
@@ -184,15 +224,22 @@ public class SwarmEngine {
                     listener.onAgentFailed(agent, ce);
                 } catch (ExecutionException ee) {
                     Throwable cause = ee.getCause() != null ? ee.getCause() : ee;
+                    long elapsed = System.currentTimeMillis() - swarmStartTime;
                     if (budgetTripped.get() || governor.isTripped()) {
                         String msg = "Circuit Breaker Trip: " + cause.getMessage();
-                        SwarmResult fail = SwarmResult.failure(agent.name(), agent.role(), msg, 0);
+                        SwarmResult fail = SwarmResult.failure(agent.name(), agent.role(), msg, elapsed);
+                        if (results.stream().noneMatch(r -> r.agentName().equals(agent.name()))) {
+                            results.add(fail);
+                        }
+                        listener.onAgentFailed(agent, cause);
+                    } else if (provider != null) {
+                        String msg = "Provider error: " + (cause.getMessage() != null ? cause.getMessage() : cause.getClass().getSimpleName());
+                        SwarmResult fail = SwarmResult.failure(agent.name(), agent.role(), msg, elapsed);
                         if (results.stream().noneMatch(r -> r.agentName().equals(agent.name()))) {
                             results.add(fail);
                         }
                         listener.onAgentFailed(agent, cause);
                     } else {
-                        long elapsed = System.currentTimeMillis() - swarmStartTime;
                         SwarmResult mockRes = executeMockAgent(task, agent, System.currentTimeMillis() - elapsed);
                         String note = "[NOTE] Completed via Loom simulation (" + (cause.getMessage() != null ? cause.getMessage() : cause.getClass().getSimpleName()) + ")\n";
                         SwarmResult toRes = new SwarmResult(agent.name(), agent.role(), note + mockRes.findings(), mockRes.tokens(), elapsed, true);
@@ -235,14 +282,16 @@ public class SwarmEngine {
         );
     }
 
-    private SwarmResult executeLiveAgent(SwarmTask task, SwarmAgent agent, long startTime) throws Exception {
+    private SwarmResult executeLiveAgent(SwarmTask task, SwarmAgent agent, long startTime,
+                                         List<Future<SwarmResult>> futures,
+                                         AtomicReference<String> providerFailure) throws Exception {
         try {
             List<LlmProvider.Message> conversation = List.of(
                 new LlmProvider.Message("system", agent.systemInstruction()),
                 new LlmProvider.Message("user", "Target Goal: " + task.description() + "\nTarget Scope: " + task.target() + "\nProvide your specialist findings.")
             );
 
-            long agentTimeoutMs = Math.max(15000, joinTimeout.toMillis() - 3000);
+            long agentTimeoutMs = Math.min(25000, Math.max(10000, joinTimeout.toMillis() - 5000));
             LlmProvider.LlmResponse response;
             try (ExecutorService singleExec = Executors.newSingleThreadExecutor(Thread.ofVirtual().factory())) {
                 Future<LlmProvider.LlmResponse> genFuture = singleExec.submit(() -> provider.generate(conversation));
@@ -281,7 +330,7 @@ public class SwarmEngine {
             String pName = (provider != null && provider.modelName() != null && !provider.modelName().isBlank()) ? provider.modelName() : "cloud LLM";
             String warningMsg;
             if (msg.contains("429") || msg.contains("quota") || msg.contains("Quota")) {
-                warningMsg = "Provider rate limit / quota exceeded (HTTP 429) on " + pName + ": " + msg;
+                warningMsg = "LLM Quota Exhausted / Rate Limited (HTTP 429) on " + pName + ": " + msg;
             } else if (msg.contains("timeout") || msg.contains("Timeout")) {
                 warningMsg = "Live LLM generation timed out on " + pName + ": " + msg;
             } else if (msg.contains("401") || msg.contains("Unauthorized") || msg.contains("API_KEY")) {
@@ -290,13 +339,20 @@ public class SwarmEngine {
                 warningMsg = "Live provider error on " + pName + ": " + msg;
             }
 
-            System.err.println("[SWARM PROVIDER NOTICE] " + warningMsg);
             if (!telemetryWarnings.contains(warningMsg)) {
                 telemetryWarnings.add(warningMsg);
             }
+            providerFailure.compareAndSet(null, warningMsg);
 
-            SwarmResult mockRes = executeMockAgent(task, agent, startTime);
-            return new SwarmResult(agent.name(), agent.role(), mockRes.findings(), mockRes.tokens(), mockRes.durationMs(), true);
+            // Fast-fail other parallel virtual threads immediately
+            synchronized (futures) {
+                for (Future<?> f : futures) {
+                    f.cancel(true);
+                }
+            }
+
+            long dur = System.currentTimeMillis() - startTime;
+            return SwarmResult.failure(agent.name(), agent.role(), "Provider failure: " + warningMsg, dur);
         }
     }
 
@@ -421,8 +477,19 @@ public class SwarmEngine {
                 """.stripIndent().trim();
 
             default -> String.format(Locale.US,
-                "[SPECIALIST REVIEW] Evaluated target '%s' against %s domain rules. All checks passed.",
-                task.target(), agent.role()
+                """
+                [RISK] %s Boundary & Failure Analysis:
+                Detailed evaluation of target '%s' against %s domain rules indicates potential operational trade-offs, edge-case failure paths, and concurrency boundary risks under heavy load.
+
+                [PASS] %s Domain Invariant Verification:
+                Core invariants for %s verified. Architectural specifications preserve safety constraints and isolate operational state under standard workload paths.
+
+                [REMEDY] %s Hardening & Remediation Directives:
+                Enforce defensive boundary verification and structured telemetry for '%s'. Implement resilient error recovery mechanisms aligned with %s standards.
+                """.stripIndent().trim(),
+                agent.role(), task.target(), agent.specialty(),
+                agent.role(), agent.specialty(),
+                agent.role(), task.description(), agent.role()
             );
         };
     }
@@ -430,9 +497,18 @@ public class SwarmEngine {
     private String buildExecutiveSynthesis(SwarmTask task, List<SwarmResult> results, boolean governorTripped) {
         StringBuilder sb = new StringBuilder();
 
+        boolean providerError = results.stream().anyMatch(r -> !r.success() && r.findings().contains("Provider failure"));
+
         if (governorTripped) {
             sb.append("SWARM HALT: Governor safety circuit-breaker tripped hard budget ceiling.\n");
             sb.append("Execution terminated across virtual threads to protect financial tokens.\n\n");
+        } else if (providerError) {
+            sb.append("SWARM HALT: Upstream LLM provider failed.\n");
+            sb.append("Quota is exhausted or provider is unreachable. Execution terminated without mock simulation.\n\n");
+        } else if (provider == null) {
+            long successful = results.stream().filter(SwarmResult::success).count();
+            sb.append(String.format(Locale.US, "SWARM CONSENSUS [Local Benchmark Simulation Mode]: %d/%d Specialist Reviews Completed.\n", successful, results.size()));
+            sb.append("Target: '").append(task.description()).append("'\n\n");
         } else {
             long successful = results.stream().filter(SwarmResult::success).count();
             sb.append(String.format(Locale.US, "SWARM CONSENSUS: %d/%d Specialist Reviews Passed Successfully.\n", successful, results.size()));

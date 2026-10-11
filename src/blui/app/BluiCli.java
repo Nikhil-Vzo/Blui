@@ -256,24 +256,32 @@ public class BluiCli {
     }
 
     static boolean processCommand(String input, Scanner scanner) {
-        if (input.equalsIgnoreCase("exit") || input.equalsIgnoreCase("quit")) {
+        if (input == null || input.isBlank()) return true;
+        String trimmed = input.trim();
+
+        if (trimmed.equalsIgnoreCase("exit") || trimmed.equalsIgnoreCase("quit")) {
             writelnUtf8(GRAY + "Shutting down Blui runtime." + RESET);
             return false;
-        } else if (input.equalsIgnoreCase("status") || input.equalsIgnoreCase("blui status")) {
+        } else if (trimmed.equalsIgnoreCase("status") || trimmed.equalsIgnoreCase("blui status")
+                || trimmed.equalsIgnoreCase("bli status") || trimmed.equalsIgnoreCase("blui")
+                || trimmed.equalsIgnoreCase("bli")) {
             printBanner();
             printStatusCards();
-        } else if (input.equalsIgnoreCase("help") || input.equalsIgnoreCase("blui help")) {
+        } else if (trimmed.equalsIgnoreCase("help") || trimmed.equalsIgnoreCase("blui help")
+                || trimmed.equalsIgnoreCase("bli help")) {
             printHelp();
-        } else if (input.equalsIgnoreCase("traces") || input.equalsIgnoreCase("blui traces")) {
+        } else if (trimmed.equalsIgnoreCase("traces") || trimmed.equalsIgnoreCase("blui traces")
+                || trimmed.equalsIgnoreCase("bli traces")) {
             listTraces();
-        } else if (input.startsWith("replay ") || input.startsWith("blui replay ")) {
-            String id = input.replaceFirst("^(blui replay|replay)\\s+", "").trim();
+        } else if (trimmed.matches("(?i)^(blui|bli|blu)?\\s*replay\\s+.*")) {
+            String id = trimmed.replaceFirst("(?i)^(blui|bli|blu)?\\s*replay\\s+", "").trim();
             replayTrace(id);
-        } else if (input.equalsIgnoreCase("env show") || input.equalsIgnoreCase("blui env show")
-                || input.equalsIgnoreCase("env list") || input.equalsIgnoreCase("show env")) {
+        } else if (trimmed.equalsIgnoreCase("env show") || trimmed.equalsIgnoreCase("blui env show")
+                || trimmed.equalsIgnoreCase("bli env show") || trimmed.equalsIgnoreCase("env list")
+                || trimmed.equalsIgnoreCase("show env")) {
             EnvConfig.printCurrent(BluiCli::writelnUtf8);
-        } else if (input.toLowerCase().matches("^(blui\\s+)?(env|set\\s+env|config)\\s+(openrouter|gemini|ollama|both|all|advanced)$")) {
-            String target = input.replaceFirst("^(blui\\s+)?(env|set\\s+env|config)\\s+", "").trim().toLowerCase();
+        } else if (trimmed.toLowerCase(Locale.ROOT).matches("(?i)^(blui|bli|blu)?\\s*(env|set\\s+env|config)\\s+(openrouter|gemini|ollama|both|all|advanced)$")) {
+            String target = trimmed.replaceFirst("(?i)^(blui|bli|blu)?\\s*(env|set\\s+env|config)\\s+", "").trim().toLowerCase(Locale.ROOT);
             Map<String, String> updated = EnvConfig.runInteractiveWizard(scanner, BluiCli::writelnUtf8, BluiCli::writeUtf8, target);
             if (updated.containsKey("OPENROUTER_API_KEY")) {
                 sessionOpenRouterKey = updated.get("OPENROUTER_API_KEY");
@@ -281,10 +289,10 @@ public class BluiCli {
             if (updated.containsKey("GEMINI_API_KEY")) {
                 sessionApiKey = updated.get("GEMINI_API_KEY");
             }
-        } else if (input.equalsIgnoreCase("env") || input.equalsIgnoreCase("blui env")
-                || input.equalsIgnoreCase("set env") || input.equalsIgnoreCase("blui set env")
-                || input.equalsIgnoreCase("config") || input.equalsIgnoreCase("blui config")
-                || input.equalsIgnoreCase("setup")) {
+        } else if (trimmed.equalsIgnoreCase("env") || trimmed.equalsIgnoreCase("blui env")
+                || trimmed.equalsIgnoreCase("bli env") || trimmed.equalsIgnoreCase("set env")
+                || trimmed.equalsIgnoreCase("blui set env") || trimmed.equalsIgnoreCase("config")
+                || trimmed.equalsIgnoreCase("blui config") || trimmed.equalsIgnoreCase("setup")) {
             Map<String, String> updated = EnvConfig.runInteractiveWizard(scanner, BluiCli::writelnUtf8, BluiCli::writeUtf8, null);
             if (updated.containsKey("OPENROUTER_API_KEY")) {
                 sessionOpenRouterKey = updated.get("OPENROUTER_API_KEY");
@@ -292,19 +300,21 @@ public class BluiCli {
             if (updated.containsKey("GEMINI_API_KEY")) {
                 sessionApiKey = updated.get("GEMINI_API_KEY");
             }
-        } else if (input.matches("^(blui\\s+)?(set\\s+env|env)\\s+\\w+\\s*=.*")) {
-            handleInlineEnvSet(input);
-        } else if (input.matches("^(blui\\s+)?(audit|swarm|/swarm|boost|/boost|goal|/goal)(\\s+.*)?$")) {
-            executeSwarm(input, scanner);
-        } else if (input.startsWith("run ") || input.startsWith("blui run ")) {
-            String task = input.replaceFirst("^(blui run|run)\\s+", "");
+        } else if (trimmed.matches("(?i)^(blui|bli|blu)?\\s*(set\\s+env|env)\\s+\\w+\\s*=.*")) {
+            handleInlineEnvSet(trimmed);
+        } else if (trimmed.matches("(?i)^(blui|bli|blu)?\\s*(audit|swarm|/swarm|boost|/boost|goal|/goal)(\\s+.*)?$")) {
+            executeSwarm(trimmed, scanner);
+        } else if (trimmed.matches("(?i)^(blui|bli|blu)?\\s*run\\s+.*")) {
+            String task = trimmed.replaceFirst("(?i)^(blui|bli|blu)?\\s*run\\s+", "");
             executeAgent(task, scanner);
-        } else if (!input.isEmpty()) {
-            String lower = input.toLowerCase(Locale.ROOT);
+        } else if (trimmed.matches("(?i)^(blui|bli|blu)\\s+.*")) {
+            writelnUtf8(RED + "Unknown command: '" + trimmed + "'. Type 'help' for available commands." + RESET);
+        } else if (!trimmed.isEmpty()) {
+            String lower = trimmed.toLowerCase(Locale.ROOT);
             if (lower.startsWith("audit") || lower.contains("swarm") || lower.startsWith("/audit")) {
-                executeSwarm(input, scanner);
+                executeSwarm(trimmed, scanner);
             } else {
-                executeAgent(input, scanner);
+                executeAgent(trimmed, scanner);
             }
         }
         return true;
@@ -1028,8 +1038,8 @@ public class BluiCli {
         }
 
         String rest = input.trim();
-        // 1. Strip leading blui if present
-        rest = rest.replaceFirst("(?i)^blui\\s+", "").trim();
+        // 1. Strip leading blui, bli, blu if present
+        rest = rest.replaceFirst("(?i)^(blui|bli|blu)\\s+", "").trim();
         // 2. Strip leading swarm, /swarm, audit, /audit if present
         rest = rest.replaceFirst("(?i)^(swarm|/swarm|audit|/audit)\\s*", "").trim();
 
@@ -1061,102 +1071,10 @@ public class BluiCli {
         return new SwarmOptions(cleaned, boost);
     }
 
-    public static final SwarmAgent CONCURRENCY_TESTER = new SwarmAgent(
-        "ConcurrencyTester",
-        "High-Throughput Loom Stress",
-        "Virtual thread pool saturation, carrier core affinity, non-blocking execution, and race mitigation",
-        """
-        You are the Concurrency & Loom Stress specialist in the Blui swarm.
-        Conduct a deep, rigorous, Claude/Codex-grade concurrency audit of Project Loom virtual thread scaling:
-        - Virtual Thread Saturation & Carrier Pool Affinity: Audit concurrent dispatch across 1,000+ virtual threads, carrier thread unmounting during blocking socket I/O, and prevention of carrier pool starvation.
-        - Structured Concurrency & Interruption Propagation: Verify StructuredTaskScope-style join timeouts, virtual thread cancellation cascades, and clean thread factory lifecycles.
-        - Egress Rate-Limit Throttling: Audit upstream API request fan-out, identifying rate limit (HTTP 429) exhaustion risks when parallel virtual threads query external LLM providers simultaneously.
-        - Non-Blocking Scalability & Lock Contention: Audit synchronization primitives, thread-safety in shared data collections, and volatile/atomic memory visibility.
-
-        Rigor & Depth Guidelines:
-        - Deliver substantive, multi-paragraph engineering analysis with high technical density.
-        - Cite specific classes (e.g. LoomRunner, SwarmEngine, SwarmGovernor, ThreadFactory).
-        - Detail concrete race conditions, carrier pinning scenarios, and rate-limiting bottlenecks.
-        - Provide actionable remediation code snippets and architectural diffs.
-        - Organize your findings into clear tagged sections:
-          [STRESS] <Headline> followed by detailed technical analysis of concurrent execution resilience.
-          [RISK] <Headline> followed by deep analytical breakdown of concurrency bottlenecks.
-          [REMEDY] <Headline> followed by concrete Java 24 concurrency hardening code snippets.
-        - Do NOT output shallow 1-line responses or generic platitudes.
-        """.stripIndent().trim()
-    );
-    public static final SwarmAgent MEMORY_AUDITOR = new SwarmAgent(
-        "MemoryAuditor",
-        "JVM Heap & Allocation Profile",
-        "Zero-allocation streaming, garbage collection pressure, and footprint efficiency",
-        """
-        You are the JVM Memory & Allocation Auditor specialist in the Blui swarm.
-        Conduct a deep, rigorous, Claude/Codex-grade memory audit of heap residency and object lifecycle overhead:
-        - Zero-Allocation Streaming & JSON Lexing: Audit MinimalJson string parsing efficiency, identifying heap churn caused by intermediate substring instances during large token streaming responses.
-        - Garbage Collection Pressure & Generational Churn: Verify short-lived allocation rates in Eden space under 8+ parallel virtual threads, ensuring zero GC pauses during critical agent loops.
-        - Virtual Thread Memory Footprint & ThreadLocal Hygiene: Audit thread-local storage usage, ensuring millions of lightweight virtual threads do not retain heavyweight ThreadLocal structures.
-        - Trace Ledger Retention & Heap Growth: Audit TraceStore memory boundaries, preventing unbounded flight trace retention during long-running agent workflows.
-
-        Rigor & Depth Guidelines:
-        - Deliver substantive, multi-paragraph engineering analysis with high technical density.
-        - Cite specific classes (e.g. MinimalJson, TraceStore, LoomRunner, BluiCli).
-        - Detail concrete memory retention risks, allocation hot-spots, and GC churn scenarios.
-        - Provide actionable remediation code snippets and architectural diffs.
-        - Organize your findings into clear tagged sections:
-          [PROFILE] <Headline> followed by detailed technical analysis of verified memory footprint efficiency.
-          [RISK] <Headline> followed by deep analytical breakdown of memory leaks or allocation overhead.
-          [REMEDY] <Headline> followed by concrete Java 24 memory optimization code snippets.
-        - Do NOT output shallow 1-line responses or generic platitudes.
-        """.stripIndent().trim()
-    );
-    public static final SwarmAgent DEPENDENCY_VERIFIER = new SwarmAgent(
-        "DependencyVerifier",
-        "Zero External Deps Hardening",
-        "Standard library encapsulation, transitive hygiene, and artifact minimalism",
-        """
-        You are the Dependency Isolation & Supply Chain specialist in the Blui swarm.
-        Conduct a deep, rigorous, Claude/Codex-grade supply-chain and dependency audit:
-        - 100% Pure OpenJDK 24 Compliance: Verify complete absence of external third-party JARs, Maven/Gradle dependencies, and binary blobs across all 33 source files in `src/`.
-        - Standard Library Encapsulation: Audit java.net.http.HttpClient, java.lang.ProcessBuilder, and java.nio abstractions, verifying that low-level networking and system process calls are fully encapsulated behind safe tool boundaries.
-        - Supply Chain Attack Surface Elimination: Verify that zero external dependencies eliminates entire classes of transitive dependency vulnerabilities (e.g. Log4Shell, prototype pollution, compromised NPM/Maven packages).
-        - Runtime Packaging & Modular Purity: Audit executable jar packaging (blui.jar), classpath cleanliness, and instant sub-second JVM bootstrap time.
-
-        Rigor & Depth Guidelines:
-        - Deliver substantive, multi-paragraph engineering analysis with high technical density.
-        - Cite specific packages and standard classes (e.g. java.net.http, java.lang.ProcessBuilder, ShellTool, HttpTool).
-        - Detail concrete dependency hygiene guarantees and modular packaging boundaries.
-        - Provide actionable remediation code snippets and architectural diffs.
-        - Organize your findings into clear tagged sections:
-          [ZERO-DEP] <Headline> followed by detailed technical analysis of pure standard library compliance.
-          [PASS] <Headline> followed by validation of standard API encapsulation.
-          [REMEDY] <Headline> followed by concrete Java 24 modular hardening recommendations.
-        - Do NOT output shallow 1-line responses or generic platitudes.
-        """.stripIndent().trim()
-    );
-    public static final SwarmAgent LATENCY_OPTIMIZER = new SwarmAgent(
-        "LatencyOptimizer",
-        "Sub-Millisecond Wall Clock",
-        "Kernel execution scheduling, IO round-trips, and critical path latency reduction",
-        """
-        You are the Low-Latency Systems Architect specialist in the Blui swarm.
-        Conduct a deep, rigorous, Claude/Codex-grade latency audit of wall-clock execution paths:
-        - Critical-Path Orchestrator Scheduling: Audit SwarmEngine and LoomRunner dispatch overhead, virtual thread unpark latency, and sub-millisecond task join orchestration.
-        - Network Socket I/O & HTTP Protocol Optimization: Audit OpenRouterClient and GeminiClient HTTP requests, evaluating HTTP/2 multiplexing, TLS handshake reuse, and TCP keep-alive socket retention.
-        - Critical-Path String & JSON Parsing Latency: Profile MinimalJson extraction latency and regex matching overhead across high-frequency agent tool evaluation loops.
-        - Parallel Task Join SLAs & Wall-Clock Efficiency: Verify structured timeout boundaries ensuring end-to-end multi-agent execution meets structured performance SLAs.
-
-        Rigor & Depth Guidelines:
-        - Deliver substantive, multi-paragraph engineering analysis with high technical density.
-        - Cite specific latency-critical paths and components (e.g. SwarmEngine, MinimalJson, OpenRouterClient, HttpClient).
-        - Detail concrete latency bottlenecks, network round-trip overhead, and scheduling delays.
-        - Provide actionable remediation code snippets and architectural diffs.
-        - Organize your findings into clear tagged sections:
-          [TIMING] <Headline> followed by detailed technical analysis of verified sub-millisecond execution paths.
-          [RISK] <Headline> followed by deep analytical breakdown of latency bottlenecks.
-          [REMEDY] <Headline> followed by concrete Java 24 latency optimization code snippets.
-        - Do NOT output shallow 1-line responses or generic platitudes.
-        """.stripIndent().trim()
-    );
+    public static final SwarmAgent CONCURRENCY_TESTER = SwarmAgent.CONCURRENCY_TESTER;
+    public static final SwarmAgent MEMORY_AUDITOR = SwarmAgent.MEMORY_AUDITOR;
+    public static final SwarmAgent DEPENDENCY_VERIFIER = SwarmAgent.DEPENDENCY_VERIFIER;
+    public static final SwarmAgent LATENCY_OPTIMIZER = SwarmAgent.LATENCY_OPTIMIZER;
 
     private static void executeSwarm(String input, Scanner scanner) {
         loadSessionFromEnv();
@@ -1164,9 +1082,18 @@ public class BluiCli {
         String goal = options.goal();
         boolean isBoost = options.boost();
 
-        List<SwarmAgent> agents = new ArrayList<>(SwarmAgent.defaultPersonas());
+        if (SwarmEngine.isAmbiguousGoal(goal)) {
+            writelnUtf8(AMBER + "\n⚠ Swarm goal '" + (goal.isEmpty() ? "<empty>" : goal) + "' is too ambiguous or short." + RESET);
+            writelnUtf8(GRAY + "  Specialist swarms require a concrete objective. Examples of valid goals:" + RESET);
+            writelnUtf8(CYAN + "    • blui swarm \"audit ./src\"" + RESET);
+            writelnUtf8(CYAN + "    • blui swarm \"design distributed rate limiter\"" + RESET);
+            writelnUtf8(CYAN + "    • blui swarm \"review security and auth tokens\"" + RESET);
+            writelnUtf8(CYAN + "    • blui swarm \"optimize memory heap allocations\"" + RESET + "\n");
+            return;
+        }
+
+        List<SwarmAgent> agents = SwarmAgent.derivePersonas(goal, isBoost);
         if (isBoost) {
-            agents.addAll(List.of(CONCURRENCY_TESTER, MEMORY_AUDITOR, DEPENDENCY_VERIFIER, LATENCY_OPTIMIZER));
             writelnUtf8(PURPLE + BOLD + "\n⚡ [SWARM TURBO] " + WHITE + "Dispatching 8 Specialist Personas on Project Loom Virtual Threads" + RESET);
         } else {
             writelnUtf8(PURPLE + BOLD + "\n⚡ [SWARM] " + WHITE + "Dispatching " + agents.size() + " Specialist Personas on Project Loom Virtual Threads" + RESET);
@@ -1188,7 +1115,7 @@ public class BluiCli {
             }
             writelnUtf8(GRAY + "  Provider: " + CYAN + provider.modelName() + GRAY + " (" + pType + ")" + RESET + "\n");
         } else {
-            writelnUtf8(AMBER + "  Notice:   No live LLM provider configured (.env). Running deep offline Loom simulation." + RESET + "\n");
+            writelnUtf8(AMBER + "  Notice:   No live LLM provider configured (.env). Running in local benchmark simulation mode." + RESET + "\n");
         }
 
         SwarmGovernor governor = SwarmGovernor.standard();
@@ -1370,6 +1297,12 @@ public class BluiCli {
             writelnUtf8(line);
         }
         writelnUtf8("");
+
+        boolean hasProviderFailure = report.results().stream().anyMatch(r -> !r.success() && r.findings().contains("Provider failure"));
+        if (hasProviderFailure) {
+            writelnUtf8(RED + BOLD + "  ✗ Swarm execution stopped: Upstream LLM provider quota exhausted or unavailable." + RESET);
+            writelnUtf8(GRAY + "    Execution halted honestly without simulation. Update keys or switch provider using 'env'." + RESET + "\n");
+        }
     }
 
     static int resolveBoxWidth() {
@@ -1542,14 +1475,18 @@ public class BluiCli {
         else grade = "B (Action Required)";
 
         long passCount = report.results().stream().filter(SwarmResult::success).count();
+        boolean providerFailed = report.results().stream().anyMatch(r -> !r.success() && r.findings().contains("Provider failure"));
+
         String consensus;
         if (report.governorTripped()) {
             consensus = "Consensus: SWARM HALT - Governor Hard Budget Tripwire Tripped";
+        } else if (providerFailed) {
+            consensus = "Consensus: SWARM HALT - Upstream LLM Provider Quota Exhausted / Unavailable";
         } else {
             consensus = String.format(Locale.US, "Consensus: %d/%d Specialist Reviews Passed │ HEALTH SCORE: %d/100 (%s)",
                 passCount, report.results().size(), healthScore, grade);
         }
-        res.add(CYAN + "│ " + (report.governorTripped() ? RED : GREEN) + padRight(consensus, inner) + CYAN + " │" + RESET);
+        res.add(CYAN + "│ " + (report.governorTripped() || providerFailed ? RED : GREEN) + padRight(consensus, inner) + CYAN + " │" + RESET);
         res.add(CYAN + "├" + "─".repeat(boxWidth - 2) + "┤" + RESET);
 
         // 1. Executive Assessment
@@ -1557,14 +1494,16 @@ public class BluiCli {
         String summaryText;
         if (report.governorTripped()) {
             summaryText = "Swarm execution was halted by the Governor circuit-breaker to enforce the hard budget ceiling. Review current usage and adjust token allowances before re-dispatch.";
+        } else if (providerFailed) {
+            summaryText = "Swarm execution halted honestly due to upstream LLM provider quota exhaustion or network timeout. No simulated findings were substituted. Verify API credits or configure alternative provider via 'env'.";
         } else if (flaws.isEmpty()) {
             summaryText = String.format(Locale.US,
-                "Static architecture audit completed across %d Project Loom virtual thread specialists. Target demonstrates pristine standard OpenJDK 24 engineering rigor, sealed type safety, and zero external runtime dependencies.",
-                report.results().size());
+                "Specialist analysis completed across %d Project Loom virtual thread specialists for target '%s'. Domain invariants verified with zero critical defects.",
+                report.results().size(), report.task().description());
         } else {
             summaryText = String.format(Locale.US,
-                "Static architecture audit completed across %d Project Loom virtual thread specialists. Codebase demonstrates robust zero-dependency Java 24 design, with %d security/concurrency vectors identified for prioritized remediation.",
-                report.results().size(), flaws.size());
+                "Specialist analysis completed across %d Project Loom virtual thread specialists for target '%s'. %d potential risk vectors identified for prioritized remediation.",
+                report.results().size(), report.task().description(), flaws.size());
         }
         for (String chunk : wrapText(summaryText, inner - 2)) {
             res.add(CYAN + "│   " + WHITE + padRight(chunk, inner - 2) + CYAN + " │" + RESET);

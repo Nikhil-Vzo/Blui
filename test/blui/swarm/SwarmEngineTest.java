@@ -1,5 +1,7 @@
 package blui.swarm;
 
+import blui.llm.LlmProvider;
+
 import java.time.Duration;
 import java.util.List;
 
@@ -18,8 +20,112 @@ public class SwarmEngineTest {
         testResultSynthesisAndPersonaRouting();
         testDynamicBudgetTripDuringExecution();
         testBoostPersonasAndMockFindings();
+        testAmbiguousGoalRejection();
+        testDynamicSpecialistPersonas();
+        testHonestProviderFailureReporting();
 
-        System.out.println("All 6 SwarmEngine tests passed successfully!");
+        System.out.println("All 9 SwarmEngine tests passed successfully!");
+    }
+
+    private static void testAmbiguousGoalRejection() {
+        assertCondition(SwarmEngine.isAmbiguousGoal("h"), "Single letter 'h' must be ambiguous");
+        assertCondition(SwarmEngine.isAmbiguousGoal("hu"), "Two letters 'hu' must be ambiguous");
+        assertCondition(SwarmEngine.isAmbiguousGoal("?"), "Question mark must be ambiguous");
+        assertCondition(SwarmEngine.isAmbiguousGoal("???"), "Multiple punctuation must be ambiguous");
+        assertCondition(SwarmEngine.isAmbiguousGoal(""), "Empty string must be ambiguous");
+        assertCondition(SwarmEngine.isAmbiguousGoal("   "), "Whitespace string must be ambiguous");
+        assertCondition(SwarmEngine.isAmbiguousGoal(null), "Null must be ambiguous");
+        assertCondition(SwarmEngine.isAmbiguousGoal("help"), "'help' token must be ambiguous");
+        assertCondition(!SwarmEngine.isAmbiguousGoal("audit ./src"), "'audit ./src' must not be ambiguous");
+        assertCondition(!SwarmEngine.isAmbiguousGoal("design distributed rate limiter"), "'design distributed rate limiter' must not be ambiguous");
+
+        SwarmGovernor governor = new SwarmGovernor(50000, 1.00, 0.000003);
+        SwarmEngine engine = new SwarmEngine(governor, Duration.ofSeconds(3));
+        boolean threw = false;
+        try {
+            engine.runSwarm(new SwarmTask("t_ambiguous", "h", "src"), SwarmAgent.defaultPersonas());
+        } catch (IllegalArgumentException e) {
+            threw = true;
+            assertCondition(e.getMessage().contains("Ambiguous swarm goal"), "Must indicate ambiguous swarm goal in exception message");
+        }
+        assertCondition(threw, "SwarmEngine.runSwarm must reject ambiguous goal 'h' with IllegalArgumentException");
+
+        System.out.println("  ✓ testAmbiguousGoalRejection passed");
+    }
+
+    private static void testDynamicSpecialistPersonas() {
+        // System Design domain
+        List<SwarmAgent> sysDesignAgents = SwarmAgent.derivePersonas("design distributed rate limiter", false);
+        assertCondition(sysDesignAgents.size() == 4, "Expected 4 agents for standard system design swarm");
+        assertCondition(sysDesignAgents.stream().anyMatch(a -> a.name().equals("SystemArchitect")), "Must include SystemArchitect");
+        assertCondition(sysDesignAgents.stream().anyMatch(a -> a.name().equals("ProtocolDesigner")), "Must include ProtocolDesigner");
+        assertCondition(sysDesignAgents.stream().anyMatch(a -> a.name().equals("DataEngineSpecialist")), "Must include DataEngineSpecialist");
+        assertCondition(sysDesignAgents.stream().anyMatch(a -> a.name().equals("ReliabilityEngineer")), "Must include ReliabilityEngineer");
+
+        // Boost system design (8 agents)
+        List<SwarmAgent> sysDesignBoost = SwarmAgent.derivePersonas("design distributed rate limiter", true);
+        assertCondition(sysDesignBoost.size() == 8, "Expected 8 agents for boost system design swarm");
+        assertCondition(sysDesignBoost.stream().anyMatch(a -> a.name().equals("ThroughputOptimizer")), "Must include ThroughputOptimizer");
+
+        // Frontend domain
+        List<SwarmAgent> frontendAgents = SwarmAgent.derivePersonas("redesign landing page UI with react", false);
+        assertCondition(frontendAgents.size() == 4, "Expected 4 agents for frontend swarm");
+        assertCondition(frontendAgents.stream().anyMatch(a -> a.name().equals("UiUxArchitect")), "Must include UiUxArchitect");
+        assertCondition(frontendAgents.stream().anyMatch(a -> a.name().equals("AccessibilityAuditor")), "Must include AccessibilityAuditor");
+
+        // Performance domain
+        List<SwarmAgent> perfAgents = SwarmAgent.derivePersonas("optimize virtual threads and latency", false);
+        assertCondition(perfAgents.size() == 4, "Expected 4 agents for perf swarm");
+        assertCondition(perfAgents.stream().anyMatch(a -> a.name().equals("LatencyOptimizer")), "Must include LatencyOptimizer");
+
+        // Execution of dynamic personas in simulation mode generates rich tagged findings
+        SwarmGovernor governor = new SwarmGovernor(50000, 1.00, 0.000003);
+        SwarmEngine engine = new SwarmEngine(governor, Duration.ofSeconds(3));
+        SwarmTask task = new SwarmTask("task_dynamic", "design distributed rate limiter", "redis");
+        SwarmEngine.SwarmReport report = engine.runSwarm(task, sysDesignAgents);
+
+        assertCondition(report.results().size() == 4, "Expected 4 results");
+        for (SwarmResult r : report.results()) {
+            assertCondition(r.success(), "Dynamic agent " + r.agentName() + " must succeed");
+            assertCondition(r.findings().contains("[RISK]"), "Findings must contain [RISK] tag");
+            assertCondition(r.findings().contains("[PASS]"), "Findings must contain [PASS] tag");
+            assertCondition(r.findings().contains("[REMEDY]"), "Findings must contain [REMEDY] tag");
+        }
+        assertCondition(report.executiveSynthesis().contains("SystemArchitect"), "Synthesis must include SystemArchitect");
+
+        System.out.println("  ✓ testDynamicSpecialistPersonas passed");
+    }
+
+    private static void testHonestProviderFailureReporting() {
+        LlmProvider failingProvider = new LlmProvider() {
+            @Override
+            public String modelName() {
+                return "test-cloud-model";
+            }
+
+            @Override
+            public LlmResponse generate(List<Message> conversation) {
+                throw new RuntimeException("Error 429: LLM Quota Exhausted / Rate limit exceeded");
+            }
+        };
+
+        SwarmGovernor governor = new SwarmGovernor(50000, 1.00, 0.000003);
+        SwarmEngine engine = new SwarmEngine(governor, failingProvider, Duration.ofSeconds(3));
+
+        SwarmTask task = new SwarmTask("task_provider_fail", "audit blui concurrency", "src/blui");
+        SwarmEngine.SwarmReport report = engine.runSwarm(task, SwarmAgent.defaultPersonas());
+
+        assertCondition(!report.results().isEmpty(), "Report must contain results");
+        boolean hasFailure = report.results().stream().anyMatch(r -> !r.success() && r.findings().contains("Provider failure"));
+        assertCondition(hasFailure, "At least one agent must record honest Provider failure without simulation mock fallback");
+
+        assertCondition(report.executiveSynthesis().contains("SWARM HALT: Upstream LLM provider failed"),
+                "Synthesis must honestly reflect SWARM HALT due to provider failure: " + report.executiveSynthesis());
+
+        boolean hasWarning = report.telemetryWarnings().stream().anyMatch(w -> w.contains("429") || w.contains("Quota"));
+        assertCondition(hasWarning, "Telemetry warnings must record provider quota / 429 error");
+
+        System.out.println("  ✓ testHonestProviderFailureReporting passed");
     }
 
     private static void testDynamicBudgetTripDuringExecution() {

@@ -29,8 +29,11 @@ public class BluiCliTest {
         testSwarmCommandParsing();
         testSwarmTelemetryBoxFormatting();
         testExecutiveSynthesisBoxFormatting();
+        testAmbiguousGoalValidationInCli();
+        testBliTypoAndSwarmParsing();
+        testDynamicSwarmSynthesisBox();
 
-        System.out.println("All 15 BluiCli tests passed successfully!");
+        System.out.println("All 18 BluiCli tests passed successfully!");
     }
 
     private static void testCardWidthsAndAlignment() {
@@ -412,6 +415,69 @@ public class BluiCliTest {
         assertCondition(joined.contains("PerformanceProfiler"), "Synthesis box must contain PerformanceProfiler");
 
         System.out.println("  ✓ testExecutiveSynthesisBoxFormatting passed");
+    }
+
+    private static void testAmbiguousGoalValidationInCli() {
+        assertCondition(SwarmEngine.isAmbiguousGoal(BluiCli.cleanGoalForTesting("h")), "'h' must be detected as ambiguous");
+        assertCondition(SwarmEngine.isAmbiguousGoal(BluiCli.cleanGoalForTesting("hu")), "'hu' must be detected as ambiguous");
+        assertCondition(SwarmEngine.isAmbiguousGoal(BluiCli.cleanGoalForTesting("?")), "'?' must be detected as ambiguous");
+        assertCondition(SwarmEngine.isAmbiguousGoal(BluiCli.cleanGoalForTesting("   ")), "Whitespace must be ambiguous");
+        assertCondition(SwarmEngine.isAmbiguousGoal(BluiCli.cleanGoalForTesting("\"h\"")), "Quoted 'h' must be ambiguous");
+        assertCondition(!SwarmEngine.isAmbiguousGoal(BluiCli.cleanGoalForTesting("audit ./src")), "'audit ./src' must be valid");
+        assertCondition(!SwarmEngine.isAmbiguousGoal(BluiCli.cleanGoalForTesting("design distributed rate limiter")), "Valid goal must pass");
+
+        System.out.println("  ✓ testAmbiguousGoalValidationInCli passed");
+    }
+
+    private static void testBliTypoAndSwarmParsing() {
+        // User typo 'bli' in swarm boost h
+        BluiCli.SwarmOptions opt1 = BluiCli.parseSwarmCommandForTesting("bli swarm boost h");
+        assertCondition("h".equals(opt1.goal()), "Parsed goal should be 'h': " + opt1.goal());
+        assertCondition(opt1.boost(), "Boost must be true for 'bli swarm boost h'");
+
+        // User typo 'bli' in swarm /boost with full goal
+        BluiCli.SwarmOptions opt2 = BluiCli.parseSwarmCommandForTesting("bli swarm /boost \"design distributed rate limiter\"");
+        assertCondition("design distributed rate limiter".equals(opt2.goal()), "Goal should match: " + opt2.goal());
+        assertCondition(opt2.boost(), "Boost must be true for 'bli swarm /boost ...'");
+
+        // Typo 'blu' prefix
+        BluiCli.SwarmOptions opt3 = BluiCli.parseSwarmCommandForTesting("blu swarm \"check security and tokens\"");
+        assertCondition("check security and tokens".equals(opt3.goal()), "Goal should match: " + opt3.goal());
+
+        // ProcessCommand handles 'bli' commands cleanly without throwing
+        java.util.Scanner dummyScanner = new java.util.Scanner("");
+        boolean helpRes = BluiCli.processCommand("bli help", dummyScanner);
+        assertCondition(helpRes, "processCommand must handle 'bli help'");
+
+        boolean statusRes = BluiCli.processCommand("bli status", dummyScanner);
+        assertCondition(statusRes, "processCommand must handle 'bli status'");
+
+        boolean unknownRes = BluiCli.processCommand("bli unknowncmd", dummyScanner);
+        assertCondition(unknownRes, "processCommand must handle unknown command without error");
+
+        System.out.println("  ✓ testBliTypoAndSwarmParsing passed");
+    }
+
+    private static void testDynamicSwarmSynthesisBox() {
+        SwarmTask task = new SwarmTask("task_dyn", "design distributed rate limiter", "redis");
+        List<SwarmResult> results = List.of(
+            new SwarmResult("SystemArchitect", "Distributed Architecture & Topology", "[RISK] Cluster split brain\n[PASS] Partition tolerance\n[REMEDY] Quorum checks", 250, 45, true),
+            new SwarmResult("ProtocolDesigner", "API Contract & Transport Protocols", "[RISK] Payload bloat\n[PASS] Idempotency keys\n[REMEDY] Compact schema", 280, 50, true)
+        );
+        SwarmEngine.SwarmReport report = new SwarmEngine.SwarmReport(task, results, "Consensus OK", 530, 0.00159, 85, false, 2);
+        List<String> box = BluiCli.buildExecutiveSynthesisBoxForTesting(report, 80);
+
+        assertCondition(!box.isEmpty(), "Synthesis box must not be empty");
+        for (String line : box) {
+            int visualLen = stripAnsi(line).length();
+            assertCondition(visualLen == 80, "Box visual length must be 80: " + visualLen);
+        }
+
+        String joined = String.join("\n", box);
+        assertCondition(joined.contains("SystemArchitect"), "Box must contain SystemArchitect");
+        assertCondition(joined.contains("ProtocolDesigner"), "Box must contain ProtocolDesigner");
+
+        System.out.println("  ✓ testDynamicSwarmSynthesisBox passed");
     }
 
     private static String stripAnsi(String s) {
