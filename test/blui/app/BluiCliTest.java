@@ -174,6 +174,20 @@ public class BluiCliTest {
         String crlfLeak = "Wait, let's understand.\r\nCould you clarify what you need?";
         assertCondition("Could you clarify what you need?".equals(BluiCli.sanitizeMonologueForTesting(crlfLeak)), "CRLF line endings should be handled correctly");
 
+        // 9. Italic and bold monologue
+        assertCondition("Could you clarify?".equals(BluiCli.sanitizeMonologueForTesting("*Wait, let's understand what the user is asking.* Could you clarify?")),
+                "Must strip italic monologue without leaving dangling asterisks");
+        assertCondition("Could you clarify?".equals(BluiCli.sanitizeMonologueForTesting("**Thinking:** The user wants \"hu\".\nCould you clarify?")),
+                "Must strip bold thinking header");
+        assertCondition("Could you clarify?".equals(BluiCli.sanitizeMonologueForTesting("### Thinking\nThe user entered 'hu'.\nCould you clarify?")),
+                "Must strip markdown h3 thinking header and monologue");
+        assertCondition("Could you clarify?".equals(BluiCli.sanitizeMonologueForTesting("<reasoning>Analyzing...</reasoning>Could you clarify?")),
+                "Must strip reasoning XML tags");
+        assertCondition("Could you clarify?".equals(BluiCli.sanitizeMonologueForTesting("Wait, let's understand:\n1. The user entered \"hu\".\nCould you clarify?")),
+                "Must strip numbered scratchpad lists");
+        assertCondition("What did you mean?".equals(BluiCli.sanitizeMonologueForTesting("The user provided \"hu\". What did you mean?")),
+                "Must strip 'The user provided...' monologue");
+
         System.out.println("  ✓ testMonologueSanitization passed");
     }
 
@@ -190,6 +204,14 @@ public class BluiCliTest {
                 "Should detect 'Could you provide more details...' as clarification");
         assertCondition(BluiCli.isClarificationRequestForTesting("Could you clarify what you mean by \"hu\"?"),
                 "Should detect question with quoted word as clarification");
+        assertCondition(BluiCli.isClarificationRequestForTesting("Please elaborate on your request."),
+                "Should detect 'Please elaborate...' as clarification");
+        assertCondition(BluiCli.isClarificationRequestForTesting("Please rephrase your goal."),
+                "Should detect 'Please rephrase...' as clarification");
+        assertCondition(BluiCli.isClarificationRequestForTesting("Please be more specific."),
+                "Should detect 'Please be more specific.' as clarification");
+        assertCondition(BluiCli.isClarificationRequestForTesting("Could you be more specific?"),
+                "Should detect 'Could you be more specific?' as clarification");
 
         // Non-clarifications (completed goals)
         assertCondition(!BluiCli.isClarificationRequestForTesting("The capital of France is Paris."),

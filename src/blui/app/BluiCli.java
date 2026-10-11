@@ -736,23 +736,29 @@ public class BluiCli {
         if (text == null) return "";
         String cleaned = text.trim();
 
-        // 1. Strip XML-style thinking tags: <think>...</think>, <thought>...</thought>, etc.
-        cleaned = cleaned.replaceAll("(?is)<(think|thought|thinking|scratchpad)>.*?</\\1>", "").trim();
-        cleaned = cleaned.replaceAll("(?is)^<(think|thought|thinking|scratchpad)>.*?(?=(\\n\\n|\\Z))", "").trim();
+        // 1. Strip XML-style thinking tags: <think>...</think>, <thought>...</thought>, <reasoning>...</reasoning>, etc.
+        cleaned = cleaned.replaceAll("(?is)<(think|thought|thinking|scratchpad|reasoning|reflection|analysis)(\\s+[^>]*)?>.*?</\\1>", "").trim();
+        cleaned = cleaned.replaceAll("(?is)^<(think|thought|thinking|scratchpad|reasoning|reflection|analysis)(\\s+[^>]*)?>.*?(?=(\\n\\n|\\Z))", "").trim();
 
         // 2. Strip markdown thought fences: ```thought ... ``` or ```thinking ... ```
-        cleaned = cleaned.replaceAll("(?is)```(?:thought|think|thinking|scratchpad)\\s*.*?```", "").trim();
+        cleaned = cleaned.replaceAll("(?is)```(?:thought|think|thinking|scratchpad|reasoning|analysis)\\s*.*?```", "").trim();
 
-        // 3. Iteratively strip leading monologue sentences or lines
+        // 3. Strip markdown headers for thinking/scratchpads: ### Thinking, ## Thought Process, # Scratchpad, etc.
+        cleaned = cleaned.replaceAll("(?im)^#{1,4}\\s*(?:thinking(?:\\s+process)?|thought(?:\\s+process)?|scratchpad|reasoning|analysis|reflection)\\s*$\\R?", "").trim();
+
+        // 4. Strip italic/bold-wrapped whole monologue clauses: *Wait, let's understand...* or **Thinking: ...**
+        cleaned = cleaned.replaceAll("(?is)^\\s*\\*{1,2}(?:wait\\b|the user\\b|let['’]?s\\b|let me\\b|thinking|thought|scratchpad|reasoning).*?\\*{1,2}\\s*", "").trim();
+
+        // 5. Iteratively strip leading monologue sentences or lines
         Pattern monologuePattern = Pattern.compile(
-                "(?is)^\\s*(?:\\*{1,2})?("
-                + "(?:wait\\s*[,!.]\\s*|wait\\s+let['’]?s\\s+)[^.!?\\n]*[.!?\\n]+[\"'\u201D\u2019]?\\s*"
-                + "|the user (?:inputted|input|entered|typed|wrote|said|is asking|asked)\\b[^.!?\\n]*[.!?\\n]+[\"'\u201D\u2019]?\\s*"
-                + "|let['’]?s (?:understand|see|analyze|figure out|examine|think)\\b[^.!?\\n]*[.!?\\n]+[\"'\u201D\u2019]?\\s*"
-                + "|let me (?:think|understand|see|analyze|figure out)\\b[^.!?\\n]*[.!?\\n]+[\"'\u201D\u2019]?\\s*"
-                + "|(?:thinking\\s*(?:process)?|thought\\s*(?:process)?|scratchpad|internal\\s*reasoning)\\s*:?\\s*[^.!?\\n]*[.!?\\n]+[\"'\u201D\u2019]?\\s*"
-                + "|this (?:looks|seems|appears) to be (?:a typo|ambiguous|an incomplete|unclear)\\b[^.!?\\n]*[.!?\\n]+[\"'\u201D\u2019]?\\s*"
-                + "|i (?:should|need to|must) ask (?:the user )?for (?:clarification|more info|details)\\b[^.!?\\n]*[.!?\\n]+[\"'\u201D\u2019]?\\s*"
+                "(?is)^\\s*(?:\\*{1,2}|#{1,4}\\s*)?(?:(?:\\d+\\.|[-*•])\\s+)?("
+                + "(?:wait\\s*[,!.:-]+\\s*|wait\\s+let['’]?s\\s+)[^.!?\\n]*[.!?\\n]+[\"'\u201D\u2019*_]*\\s*"
+                + "|the user (?:inputted|input|entered|typed|wrote|said|is asking|asked|provided|gave|supplied|wants|is trying|is looking|needs|means)\\b[^.!?\\n]*[.!?\\n]+[\"'\u201D\u2019*_]*\\s*"
+                + "|let['’]?s (?:understand|see|analyze|figure out|examine|think|ask|clarify)\\b[^.!?\\n]*[.!?\\n]+[\"'\u201D\u2019*_]*\\s*"
+                + "|let me (?:think|understand|see|analyze|figure out|ask|clarify)\\b[^.!?\\n]*[.!?\\n]+[\"'\u201D\u2019*_]*\\s*"
+                + "|(?:thinking\\s*(?:process)?|thought\\s*(?:process)?|scratchpad|internal\\s*reasoning|analysis)\\s*:?\\s*[^.!?\\n]*[.!?\\n]+[\"'\u201D\u2019*_]*\\s*"
+                + "|this (?:looks|seems|appears) to be (?:a typo|ambiguous|an incomplete|unclear)\\b[^.!?\\n]*[.!?\\n]+[\"'\u201D\u2019*_]*\\s*"
+                + "|i (?:should|need to|must) (?:ask|clarify)(?:\\s+(?:the user|for|with))?[^.!?\\n]*[.!?\\n]+[\"'\u201D\u2019*_]*\\s*"
                 + ")"
         );
 
@@ -765,22 +771,38 @@ public class BluiCli {
             }
         }
 
-        // 4. Line-by-line fallback for scratchpad headers or lines
+        // 6. Line-by-line fallback for scratchpad headers or lines
         String[] lines = cleaned.split("\\R");
         int startIndex = 0;
         for (int i = 0; i < lines.length; i++) {
-            String l = lines[i].trim().toLowerCase(Locale.ROOT);
+            String l = lines[i].trim().toLowerCase(Locale.ROOT)
+                    .replaceAll("^[#*_\\-\\d.\\s]+", "");
             if (l.startsWith("wait, let's understand")
                     || l.startsWith("wait, let me")
                     || l.startsWith("wait, what")
+                    || l.startsWith("wait:")
+                    || l.startsWith("wait -")
                     || l.startsWith("the user inputted")
                     || l.startsWith("the user input is")
+                    || l.startsWith("the user entered")
                     || l.startsWith("the user typed")
+                    || l.startsWith("the user provided")
+                    || l.startsWith("the user wants")
+                    || l.startsWith("the user needs")
+                    || l.startsWith("the user is trying")
                     || l.startsWith("scratchpad:")
+                    || l.startsWith("scratchpad")
                     || l.startsWith("thinking:")
+                    || l.startsWith("thinking")
                     || l.startsWith("thinking process:")
+                    || l.startsWith("thinking process")
                     || l.startsWith("thought:")
-                    || l.startsWith("thought process:")) {
+                    || l.startsWith("thought")
+                    || l.startsWith("thought process:")
+                    || l.startsWith("thought process")
+                    || l.startsWith("reasoning:")
+                    || l.startsWith("reasoning")
+                    || l.startsWith("internal reasoning")) {
                 startIndex = i + 1;
             } else {
                 break;
@@ -794,6 +816,8 @@ public class BluiCli {
             }
             cleaned = sb.toString().trim();
         }
+
+        cleaned = cleaned.replaceFirst("^[*_]+\\s*", "");
 
         if (cleaned.isBlank()) {
             return "Could you please clarify your request?";
@@ -811,13 +835,26 @@ public class BluiCli {
                 || lower.contains("did you mean")
                 || lower.contains("what did you mean")
                 || lower.contains("what do you mean")
+                || lower.contains("mean by")
                 || lower.contains("please specify")
                 || lower.contains("could you specify")
+                || lower.contains("can you specify")
                 || lower.contains("please provide more")
                 || lower.contains("could you provide more")
+                || lower.contains("can you provide more")
+                || lower.contains("please elaborate")
+                || lower.contains("could you elaborate")
+                || lower.contains("can you elaborate")
+                || lower.contains("please rephrase")
+                || lower.contains("could you rephrase")
+                || lower.contains("can you rephrase")
+                || lower.contains("please be more specific")
+                || lower.contains("could you be more specific")
+                || lower.contains("can you be more specific")
                 || lower.contains("what would you like")
                 || lower.contains("what do you want me to")
-                || lower.contains("what should i do")) {
+                || lower.contains("what should i do")
+                || lower.contains("what did you intend")) {
             return true;
         }
 
