@@ -119,8 +119,9 @@ public class SwarmEngineTest {
         boolean hasFailure = report.results().stream().anyMatch(r -> !r.success() && r.findings().contains("Provider failure"));
         assertCondition(hasFailure, "At least one agent must record honest Provider failure without simulation mock fallback");
 
-        assertCondition(report.executiveSynthesis().contains("SWARM HALT: Upstream LLM provider failed"),
-                "Synthesis must honestly reflect SWARM HALT due to provider failure: " + report.executiveSynthesis());
+        String synthesis = report.executiveSynthesis();
+        assertCondition(synthesis.contains("SWARM HALT: All LLM providers exhausted") || synthesis.contains("SWARM HALT: Upstream LLM provider failed"),
+                "Synthesis must honestly reflect SWARM HALT due to provider failure: " + synthesis);
 
         boolean hasWarning = report.telemetryWarnings().stream().anyMatch(w -> w.contains("429") || w.contains("Quota"));
         assertCondition(hasWarning, "Telemetry warnings must record provider quota / 429 error");

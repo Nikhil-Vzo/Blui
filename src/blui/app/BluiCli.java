@@ -1140,9 +1140,16 @@ public class BluiCli {
             stateMap.put(a.name(), state);
         }
 
-        boolean isInteractive = (System.console() != null && System.console().isTerminal())
+        boolean isConsole = (System.console() != null && System.console().isTerminal())
                 || "true".equalsIgnoreCase(System.getProperty("blui.interactive"))
                 || "true".equalsIgnoreCase(System.getenv("BLUI_INTERACTIVE"));
+        // On Windows CMD without VT support (no WT_SESSION, TERM, or COLORTERM), cursor-up rewrites flood screen
+        boolean hasAnsiVt = System.getenv("WT_SESSION") != null  // Windows Terminal
+                || System.getenv("TERM") != null                  // Unix/ConEmu/etc
+                || System.getenv("COLORTERM") != null             // Truecolor terminals
+                || System.getenv("ANSICON") != null               // ANSICON wrapper
+                || "true".equalsIgnoreCase(System.getProperty("blui.ansi")); // explicit override
+        boolean isInteractive = isConsole && hasAnsiVt;
         char[] spinnerFrames = {'⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'};
 
         if (isInteractive) {

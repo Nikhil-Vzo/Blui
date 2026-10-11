@@ -186,21 +186,24 @@ public class SwarmEngine {
                 } catch (TimeoutException te) {
                     f.cancel(true);
                     long elapsed = System.currentTimeMillis() - swarmStartTime;
+                    String errMsg = (provider != null)
+                        ? "Provider timeout: all configured LLM providers failed or quota exhausted"
+                        : "Join SLA reached in simulation mode";
+                    SwarmResult toRes;
                     if (provider != null) {
-                        String errMsg = "Provider timeout: join SLA reached before live LLM response";
-                        SwarmResult toRes = SwarmResult.failure(agent.name(), agent.role(), errMsg, elapsed);
-                        if (results.stream().noneMatch(r -> r.agentName().equals(agent.name()))) {
-                            results.add(toRes);
+                        toRes = SwarmResult.failure(agent.name(), agent.role(), errMsg, elapsed);
+                        if (!telemetryWarnings.stream().anyMatch(w -> w.contains("timed out"))) {
+                            telemetryWarnings.add("Live LLM generation timed out on " + (provider.modelName() != null ? provider.modelName() : "provider") + " — all providers exhausted");
                         }
                         listener.onAgentFailed(agent, te);
                     } else {
                         SwarmResult mockRes = executeMockAgent(task, agent, System.currentTimeMillis() - elapsed);
                         String note = "[NOTE] Swarm join SLA reached; completed via Project Loom virtual thread simulation.\n";
-                        SwarmResult toRes = new SwarmResult(agent.name(), agent.role(), note + mockRes.findings(), mockRes.tokens(), elapsed, true);
-                        if (results.stream().noneMatch(r -> r.agentName().equals(agent.name()))) {
-                            results.add(toRes);
-                        }
+                        toRes = new SwarmResult(agent.name(), agent.role(), note + mockRes.findings(), mockRes.tokens(), elapsed, true);
                         listener.onAgentCompleted(agent, toRes);
+                    }
+                    if (results.stream().noneMatch(r -> r.agentName().equals(agent.name()))) {
+                        results.add(toRes);
                     }
                 } catch (InterruptedException ie) {
                     Thread.currentThread().interrupt();
@@ -498,17 +501,28 @@ public class SwarmEngine {
     private String buildExecutiveSynthesis(SwarmTask task, List<SwarmResult> results, boolean governorTripped) {
         StringBuilder sb = new StringBuilder();
 
-        boolean providerError = results.stream().anyMatch(r -> !r.success() && r.findings().contains("Provider failure"));
+        boolean allFailed = results.stream().noneMatch(SwarmResult::success);
+        boolean providerError = results.stream().anyMatch(r -> !r.success()
+                && (r.findings().contains("Provider failure") || r.findings().contains("Provider timeout")
+                    || r.findings().contains("quota") || r.findings().contains("timed out")));
+        boolean quotaExhausted = !telemetryWarnings.isEmpty() && telemetryWarnings.stream()
+                .anyMatch(w -> w.contains("429") || w.contains("quota") || w.contains("Quota") || w.contains("timed out"));
 
         if (governorTripped) {
             sb.append("SWARM HALT: Governor safety circuit-breaker tripped hard budget ceiling.\n");
             sb.append("Execution terminated across virtual threads to protect financial tokens.\n\n");
-        } else if (providerError) {
+        } else if (allFailed && quotaExhausted && provider != null) {
+            sb.append("SWARM HALT: All LLM providers exhausted or timed out.\n");
+            sb.append("Your Gemini free-tier quota is exhausted and OpenRouter timed out. ");
+            sb.append("No mock simulation ran — results below show actual failure reasons.\n");
+            sb.append("To resolve: wait for quota reset (~2h) or add an OpenRouter API key with credits.\n\n");
+        } else if (allFailed && providerError) {
             sb.append("SWARM HALT: Upstream LLM provider failed.\n");
             sb.append("Quota is exhausted or provider is unreachable. Execution terminated without mock simulation.\n\n");
         } else if (provider == null) {
             long successful = results.stream().filter(SwarmResult::success).count();
             sb.append(String.format(Locale.US, "SWARM CONSENSUS [Local Benchmark Simulation Mode]: %d/%d Specialist Reviews Completed.\n", successful, results.size()));
+            sb.append("Notice: No live LLM provider configured. Running offline specialist simulations.\n");
             sb.append("Target: '").append(task.description()).append("'\n\n");
         } else {
             long successful = results.stream().filter(SwarmResult::success).count();
