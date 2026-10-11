@@ -10,6 +10,7 @@ import blui.governor.Governor;
 import blui.llm.GeminiClient;
 import blui.llm.LlmProvider;
 import blui.llm.OllamaClient;
+import blui.llm.OpenRouterClient;
 import blui.loom.LoomRunner;
 import blui.loom.ToolExecution;
 import blui.replay.AgentTrace;
@@ -51,6 +52,7 @@ public class BluiCli {
 
     private static final TraceStore traceStore = new TraceStore();
     private static String sessionApiKey = null;
+    private static String sessionOpenRouterKey = null;
 
     private static final String RESET = "\033[0m";
     private static final String BOLD = "\033[1m";
@@ -252,9 +254,12 @@ public class BluiCli {
         } else if (input.equalsIgnoreCase("env show") || input.equalsIgnoreCase("blui env show")
                 || input.equalsIgnoreCase("env list") || input.equalsIgnoreCase("show env")) {
             EnvConfig.printCurrent(BluiCli::writelnUtf8);
-        } else if (input.toLowerCase().matches("^(blui\\s+)?(env|set\\s+env|config)\\s+(gemini|ollama|both|all|advanced)$")) {
+        } else if (input.toLowerCase().matches("^(blui\\s+)?(env|set\\s+env|config)\\s+(openrouter|gemini|ollama|both|all|advanced)$")) {
             String target = input.replaceFirst("^(blui\\s+)?(env|set\\s+env|config)\\s+", "").trim().toLowerCase();
             Map<String, String> updated = EnvConfig.runInteractiveWizard(scanner, BluiCli::writelnUtf8, BluiCli::writeUtf8, target);
+            if (updated.containsKey("OPENROUTER_API_KEY")) {
+                sessionOpenRouterKey = updated.get("OPENROUTER_API_KEY");
+            }
             if (updated.containsKey("GEMINI_API_KEY")) {
                 sessionApiKey = updated.get("GEMINI_API_KEY");
             }
@@ -263,6 +268,9 @@ public class BluiCli {
                 || input.equalsIgnoreCase("config") || input.equalsIgnoreCase("blui config")
                 || input.equalsIgnoreCase("setup")) {
             Map<String, String> updated = EnvConfig.runInteractiveWizard(scanner, BluiCli::writelnUtf8, BluiCli::writeUtf8, null);
+            if (updated.containsKey("OPENROUTER_API_KEY")) {
+                sessionOpenRouterKey = updated.get("OPENROUTER_API_KEY");
+            }
             if (updated.containsKey("GEMINI_API_KEY")) {
                 sessionApiKey = updated.get("GEMINI_API_KEY");
             }
@@ -290,6 +298,9 @@ public class BluiCli {
             }
             try {
                 EnvConfig.saveVar(EnvConfig.DEFAULT_ENV_PATH, key, val);
+                if ("OPENROUTER_API_KEY".equalsIgnoreCase(key)) {
+                    sessionOpenRouterKey = val;
+                }
                 if ("GEMINI_API_KEY".equalsIgnoreCase(key)) {
                     sessionApiKey = val;
                 }
@@ -306,7 +317,7 @@ public class BluiCli {
         writelnUtf8(BOLD + "\nAvailable Commands:" + RESET);
         writelnUtf8("  " + CYAN + "run <goal>" + RESET + "            - Execute an agent loop with Governor and Loom");
         writelnUtf8("  " + CYAN + "swarm <goal>" + RESET + "          - Execute parallel multi-agent swarm on virtual threads");
-        writelnUtf8("  " + CYAN + "env [gemini|ollama]" + RESET + "   - Configure provider environment (Hermes-style 'k' to keep)");
+        writelnUtf8("  " + CYAN + "env [openrouter|gemini|ollama]" + RESET + " - Configure provider environment (Hermes-style 'k' to keep)");
         writelnUtf8("  " + CYAN + "set env <KEY>=<VAL>" + RESET + "   - Set specific variable inline in .env");
         writelnUtf8("  " + CYAN + "env show" + RESET + "              - Display current .env configuration");
         writelnUtf8("  " + CYAN + "traces" + RESET + "                - List all saved flight recorder traces on disk");
@@ -375,27 +386,67 @@ public class BluiCli {
         return cleaned;
     }
 
-    private static String resolveGeminiApiKey(Scanner scanner) {
-        if (sessionApiKey != null && !sessionApiKey.isBlank()) {
-            return sessionApiKey;
+    static LlmProvider resolveProviderForTesting() {
+        return resolveProvider(null);
+    }
+
+    private static LlmProvider resolveProvider(Scanner scanner) {
+        String providerPref = EnvConfig.get("LLM_PROVIDER");
+
+        // 1. OpenRouter (Primary if configured)
+        String openrouterKey = sessionOpenRouterKey != null ? sessionOpenRouterKey : EnvConfig.get("OPENROUTER_API_KEY");
+        if (openrouterKey != null && !openrouterKey.isBlank() && !"gemini".equalsIgnoreCase(providerPref) && !"ollama".equalsIgnoreCase(providerPref)) {
+            sessionOpenRouterKey = openrouterKey;
+            String model = EnvConfig.get("OPENROUTER_MODEL");
+            String reasoning = EnvConfig.get("OPENROUTER_REASONING_EFFORT");
+            return new OpenRouterClient(
+                    openrouterKey,
+                    (model != null && !model.isBlank()) ? model : OpenRouterClient.DEFAULT_MODEL,
+                    (reasoning != null && !reasoning.isBlank()) ? reasoning : OpenRouterClient.DEFAULT_REASONING_EFFORT,
+                    Duration.ofMinutes(2)
+            );
         }
 
-        String resolved = EnvConfig.get("GEMINI_API_KEY");
-        if (resolved != null && !resolved.isBlank()) {
-            sessionApiKey = resolved;
-            return sessionApiKey;
+        // 2. Google Gemini
+        String geminiKey = sessionApiKey != null ? sessionApiKey : EnvConfig.get("GEMINI_API_KEY");
+        if (geminiKey != null && !geminiKey.isBlank() && !"ollama".equalsIgnoreCase(providerPref)) {
+            sessionApiKey = geminiKey;
+            String customModel = EnvConfig.get("GEMINI_MODEL");
+            return new GeminiClient(
+                    geminiKey,
+                    customModel != null ? customModel : GeminiClient.DEFAULT_MODEL,
+                    Duration.ofMinutes(2)
+            );
         }
 
-        // Prompt user interactively specifically for Gemini
-        writelnUtf8(CYAN + "\n[AUTH] GEMINI_API_KEY not found in OS environment or .env file." + RESET);
-        writeUtf8(BOLD + "       Configure Gemini API key now? [Y/n] (or press Enter to configure): " + RESET);
-        if (scanner.hasNextLine()) {
-            String choice = scanner.nextLine().trim();
-            if (choice.isEmpty() || "y".equalsIgnoreCase(choice) || "yes".equalsIgnoreCase(choice)) {
-                Map<String, String> updated = EnvConfig.runInteractiveWizard(scanner, BluiCli::writelnUtf8, BluiCli::writeUtf8, "gemini");
-                if (updated.containsKey("GEMINI_API_KEY")) {
-                    sessionApiKey = updated.get("GEMINI_API_KEY");
-                    return sessionApiKey;
+        // 3. Local Ollama
+        String ollamaHost = EnvConfig.get("OLLAMA_HOST");
+        String ollamaModel = EnvConfig.get("OLLAMA_MODEL");
+        String host = (ollamaHost != null && !ollamaHost.isBlank()) ? ollamaHost : "http://localhost:11434";
+        String model = (ollamaModel != null && !ollamaModel.isBlank()) ? ollamaModel : "llama3.2";
+        OllamaClient ollama = new OllamaClient(host, model, Duration.ofMinutes(2));
+        if (ollama.isAvailable()) {
+            return ollama;
+        }
+
+        // 4. Interactive prompt if scanner is active
+        if (scanner != null) {
+            writelnUtf8(CYAN + "\n[AUTH] No active AI provider key configured (.env or environment)." + RESET);
+            writeUtf8(BOLD + "       Configure provider now? [1=OpenRouter, 2=Gemini, n=Skip]: " + RESET);
+            if (scanner.hasNextLine()) {
+                String choice = scanner.nextLine().trim();
+                if ("1".equals(choice) || "openrouter".equalsIgnoreCase(choice) || "y".equalsIgnoreCase(choice)) {
+                    Map<String, String> updated = EnvConfig.runInteractiveWizard(scanner, BluiCli::writelnUtf8, BluiCli::writeUtf8, "openrouter");
+                    if (updated.containsKey("OPENROUTER_API_KEY")) {
+                        sessionOpenRouterKey = updated.get("OPENROUTER_API_KEY");
+                        return resolveProvider(null);
+                    }
+                } else if ("2".equals(choice) || "gemini".equalsIgnoreCase(choice)) {
+                    Map<String, String> updated = EnvConfig.runInteractiveWizard(scanner, BluiCli::writelnUtf8, BluiCli::writeUtf8, "gemini");
+                    if (updated.containsKey("GEMINI_API_KEY")) {
+                        sessionApiKey = updated.get("GEMINI_API_KEY");
+                        return resolveProvider(null);
+                    }
                 }
             }
         }
@@ -405,31 +456,22 @@ public class BluiCli {
 
     private static void executeAgent(String rawGoal, Scanner scanner) {
         String goal = cleanGoal(rawGoal);
-        String apiKey = resolveGeminiApiKey(scanner);
+        LlmProvider provider = resolveProvider(scanner);
 
-        LlmProvider provider = null;
-        if (apiKey != null && !apiKey.isBlank()) {
-            String customModel = EnvConfig.get("GEMINI_MODEL");
-            provider = new GeminiClient(apiKey, customModel != null ? customModel : GeminiClient.DEFAULT_MODEL, Duration.ofMinutes(2));
+        if (provider instanceof OpenRouterClient orc) {
+            writelnUtf8(CYAN + "\n[BRAIN] Provider: OpenRouter (" + orc.modelName() + " via openrouter.ai | Reasoning: " + orc.reasoningEffort() + ")" + RESET);
+            runLiveAgent(goal, provider);
+        } else if (provider instanceof GeminiClient) {
             writelnUtf8(CYAN + "\n[BRAIN] Provider: Google Gemini (" + provider.modelName() + " via Google AI Studio)" + RESET);
+            runLiveAgent(goal, provider);
+        } else if (provider instanceof OllamaClient) {
+            String host = EnvConfig.get("OLLAMA_HOST");
+            writelnUtf8(CYAN + "\n[BRAIN] Provider: Local Ollama (" + provider.modelName() + " @ " + (host != null ? host : "http://localhost:11434") + ")" + RESET);
+            runLiveAgent(goal, provider);
         } else {
-            String ollamaHost = EnvConfig.get("OLLAMA_HOST");
-            String ollamaModel = EnvConfig.get("OLLAMA_MODEL");
-            String host = (ollamaHost != null && !ollamaHost.isBlank()) ? ollamaHost : "http://localhost:11434";
-            String model = (ollamaModel != null && !ollamaModel.isBlank()) ? ollamaModel : "llama3.2";
-
-            OllamaClient ollama = new OllamaClient(host, model, Duration.ofMinutes(2));
-            if (ollama.isAvailable()) {
-                provider = ollama;
-                writelnUtf8(CYAN + "\n[BRAIN] Provider: Local Ollama (" + provider.modelName() + " @ " + host + ")" + RESET);
-            } else {
-                writelnUtf8(GRAY + "\n[BRAIN] Note: No Gemini key or local Ollama daemon found. Running local simulation." + RESET);
-                runMockAgent(goal);
-                return;
-            }
+            writelnUtf8(GRAY + "\n[BRAIN] Note: No OpenRouter/Gemini key or local Ollama daemon found. Running local simulation." + RESET);
+            runMockAgent(goal);
         }
-
-        runLiveAgent(goal, provider);
     }
 
     private static void runLiveAgent(String rawGoal, LlmProvider provider) {
@@ -953,12 +995,13 @@ public class BluiCli {
         }
 
         // Detect LLM provider if available
-        String apiKey = sessionApiKey != null ? sessionApiKey : EnvConfig.get("GEMINI_API_KEY");
-        LlmProvider provider = null;
-        if (apiKey != null && !apiKey.isBlank()) {
-            String customModel = EnvConfig.get("GEMINI_MODEL");
-            provider = new GeminiClient(apiKey, customModel != null ? customModel : GeminiClient.DEFAULT_MODEL, Duration.ofSeconds(8));
+        LlmProvider provider = resolveProvider(null);
+        if (provider instanceof OpenRouterClient orc) {
+            writelnUtf8(CYAN + "[BRAIN] Provider: OpenRouter (" + orc.modelName() + " via openrouter.ai | Reasoning: " + orc.reasoningEffort() + ")\n" + RESET);
+        } else if (provider instanceof GeminiClient) {
             writelnUtf8(CYAN + "[BRAIN] Provider: Google Gemini (" + provider.modelName() + " via Google AI Studio)\n" + RESET);
+        } else if (provider instanceof OllamaClient) {
+            writelnUtf8(CYAN + "[BRAIN] Provider: Local Ollama (" + provider.modelName() + ")\n" + RESET);
         } else {
             writelnUtf8(GRAY + "[BRAIN] Simulation Mode: Zero-dependency virtual thread evaluation (pure JDK standard library)\n" + RESET);
         }

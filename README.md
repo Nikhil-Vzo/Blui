@@ -123,27 +123,33 @@ blui > exit                  # Terminates the shell session
 
 ---
 
-## 🔑 LLM Provider & Hermes-Style Environment Setup
+## 🔑 LLM Providers & Hermes-Style Environment Setup
 
-Blui supports both **Cloud LLMs** (Google Gemini 3.5 Flash via Google AI Studio) and **100% Offline Local LLMs** (Ollama @ `localhost:11434`).
+Blui supports **OpenRouter** (Nvidia Nemotron 3.5 Lightning with peak reasoning effort), **Google Gemini** (Gemini 3.5 Flash via AI Studio), and **100% Offline Local LLMs** (Ollama @ `localhost:11434`).
 
 ### Terminal-Native Hermes-Style Wizard (`blui > env`)
 Like Hermes Agent, you can inspect and update your environment directly inside the terminal:
 ```text
 ┌─ ENVIRONMENT SETUP ────────────────────────────────────────────────┐
 │ Choose provider to configure:                                      │
-│   [1] Google Gemini (API Key)                                      │
-│   [2] Local Ollama  (Model Name)                                   │
-│   [3] Both Providers (Gemini Key + Ollama Model)                   │
-│   [4] Advanced       (All Settings & Endpoints)                    │
+│   [1] OpenRouter    (Nemotron 3.5 Lightning / Any Model)           │
+│   [2] Google Gemini (Gemini 3.5 Flash)                             │
+│   [3] Local Ollama  (Model Name)                                   │
+│   [4] All Providers (OpenRouter, Gemini, Ollama)                   │
+│   [5] Advanced      (All Settings, Endpoints & Reasoning)          │
 └────────────────────────────────────────────────────────────────────┘
-Enter choice [1-4] (Default: 1 for Gemini): 1
+Enter choice [1-5] (Default: 1 for OpenRouter): 1
 
-─ Configuring Google Gemini ─────────────────────────────────────────
+─ Configuring OpenRouter ─────────────────────────────────────────
 Press Enter or 'k' to keep existing value | Type 'clear' to remove
 
-[1/1] GEMINI_API_KEY (Google Gemini API Key (AI Studio))
-      Current: AQ.Ab8••••••••LOJg
+[1/2] OPENROUTER_API_KEY (OpenRouter API Key (https://openrouter.ai/keys))
+      Current: sk-or-••••••••LOJg
+      Enter value (or 'k' to keep): k
+      └─ Kept existing value.
+
+[2/2] OPENROUTER_MODEL (OpenRouter Model ID)
+      Current: nvidia/nemotron-3.5-lightning:free
       Enter value (or 'k' to keep): k
       └─ Kept existing value.
 
@@ -152,16 +158,19 @@ Press Enter or 'k' to keep existing value | Type 'clear' to remove
 
 You can also set variables inline anytime:
 ```text
-blui > set env GEMINI_API_KEY=AIzaSy...your_key_here
-✓ Set GEMINI_API_KEY = AIzaSy••••••••here in .env (git-ignored)
+blui > set env OPENROUTER_API_KEY=sk-or-v1-...your_key_here
+✓ Set OPENROUTER_API_KEY = sk-or-••••••••here in .env (git-ignored)
+
+blui > set env OPENROUTER_MODEL=nvidia/nemotron-3.5-lightning:free
+✓ Set OPENROUTER_MODEL = nvidia/nemotron-3.5-lightning:free in .env (git-ignored)
 ```
 
 Blui resolves your credentials in the following automatic hierarchy:
-1. **In-Memory Session**: Active terminal session overrides.
-2. **Local `.env` File**: Managed git-ignored file in project root.
-3. **OS Environment Variables**: `GEMINI_API_KEY`, `OLLAMA_HOST`, `OLLAMA_MODEL`.
-4. **Interactive Wizard**: If running an agent without a configured key, Blui prompts you immediately.
-5. **Local Ollama Fallback**: If no key is set, Blui queries `localhost:11434` for local models.
+1. **OpenRouter**: Primary when `OPENROUTER_API_KEY` is configured (defaults to `nvidia/nemotron-3.5-lightning:free` with `reasoning: {"effort": "high"}`).
+2. **Google Gemini**: Cloud fallback when `GEMINI_API_KEY` is present.
+3. **Local Ollama**: Offline fallback querying `localhost:11434` for local models.
+4. **Interactive Wizard**: If running without keys, Blui prompts you inline.
+5. **Zero-Dep Simulation**: Complete offline virtual thread evaluation with zero API dependencies.
 
 ---
 
@@ -249,7 +258,7 @@ Target Goal: 'audit blui codebase'
 
 ---
 
-## 🧩 Codebase Audit (33 Java Files & Zero Dependencies)
+## 🧩 Codebase Audit (35 Java Files & Zero Dependencies)
 
 Every component is written from scratch using pure Java 24 standard library primitives:
 
@@ -259,26 +268,27 @@ Every component is written from scratch using pure Java 24 standard library prim
 | **`blui.governor`** | `Budget.java`<br>`CycleDetector.java`<br>`Governor.java` | **175 LOC** | Lock-free token/cost limits and sliding-window loop circuit breaker. |
 | **`blui.loom`** | `ToolExecution.java`<br>`LoomRunner.java` | **106 LOC** | Java 24 Virtual Threads executor running parallel tool calls with strict join SLAs. |
 | **`blui.tools`** | `ShellTool.java`<br>`FileTool.java`<br>`HttpTool.java` | **291 LOC** | **Pillar 1 (Hands)**: OS process execution with timeout kills, sandboxed workspace filesystem I/O, web fetcher. |
-| **`blui.llm`** | `MinimalJson.java`<br>`LlmProvider.java`<br>`GeminiClient.java`<br>`OllamaClient.java` | **400 LOC** | **Pillar 2 (Brain)**: Zero-dep JSON parser, Google Gemini API free tier (`gemini-3.5-flash`), local offline Ollama (`localhost:11434`), real token metering. |
+| **`blui.llm`** | `MinimalJson.java`<br>`LlmProvider.java`<br>`OpenRouterClient.java`<br>`GeminiClient.java`<br>`OllamaClient.java`<br>`OpenRouterClientTest.java` | **560 LOC** | **Pillar 2 (Brain)**: Zero-dep JSON parser, OpenRouter (`nvidia/nemotron-3.5-lightning:free` with peak reasoning effort), Google Gemini (`gemini-3.5-flash`), local offline Ollama (`localhost:11434`), real token metering. |
 | **`blui.replay`** | `StepTrace.java`<br>`AgentTrace.java`<br>`ReplayEngine.java`<br>`TraceStore.java`<br>`TraceStoreTest.java` | **339 LOC** | **Pillar 3 (Memory)**: Black-box flight recorder to `.blui/traces/*.json`, step-by-step post-mortem inspection, state restoration. |
 | **`blui.swarm`** | `SwarmAgent.java`<br>`SwarmTask.java`<br>`SwarmResult.java`<br>`SwarmGovernor.java`<br>`SwarmEngine.java`<br>`SwarmEngineTest.java` | **544 LOC** | **Phase 10 (Swarm)**: Multi-agent swarm concurrency on Loom virtual threads, atomic budget circuit-breaker, and consolidated synthesis. |
-| **`blui.app`** | `TerminalArt.java`<br>`BluiCli.java`<br>`EnvConfig.java`<br>`EnvConfigTest.java`<br>`BluiCliTest.java` | **1,250 LOC** | Sub-pixel ANSI 24-bit Truecolor RGBA mascot renderer, hardware status cards, Hermes-style `.env` wizard, interactive swarm UI, and REPL shell. |
-| **Total** | **33 Java Files (28 src + 5 test)** | **3,737 LOC** | **100% Pure JDK Standard Library** |
+| **`blui.app`** | `TerminalArt.java`<br>`BluiCli.java`<br>`EnvConfig.java`<br>`EnvConfigTest.java`<br>`BluiCliTest.java` | **1,280 LOC** | Sub-pixel ANSI 24-bit Truecolor RGBA mascot renderer, hardware status cards, Hermes-style `.env` wizard, interactive swarm UI, and REPL shell. |
+| **Total** | **35 Java Files (29 src + 6 test)** | **3,890 LOC** | **100% Pure JDK Standard Library** |
 
 ---
 
-## 🧪 Verification & Testing (31/31 Tests Passing)
+## 🧪 Verification & Testing (37/37 Tests Passing)
 
 Blui includes standalone, zero-dependency verification suites with 100% passing tests:
 
 ```powershell
-# Compile & run full test suite (31/31 tests across 5 suites)
+# Compile & run full test suite (37/37 tests across 6 suites)
 javac -d bin (Get-ChildItem -Recurse -Filter "*.java" src).FullName (Get-ChildItem -Recurse -Filter "*.java" test).FullName
 java -cp bin blui.core.BluiEngineTest
 java -cp bin blui.replay.TraceStoreTest
 java -cp bin blui.app.EnvConfigTest
 java -cp bin blui.app.BluiCliTest
 java -cp bin blui.swarm.SwarmEngineTest
+java -cp bin blui.llm.OpenRouterClientTest
 ```
 
 ```text
@@ -312,12 +322,13 @@ Running BluiCli verification suite...
   ✓ testClarificationDetection passed
   ✓ testSystemPromptDirectives passed
   ✓ testGeminiModelDefaults passed
+  ✓ testOpenRouterModelDefaultsAndProviderResolution passed
   ✓ testSwarmHeaderCommandIncluded passed
   ✓ testBenchCommandRemovedFromHeader passed
   ✓ testSwarmCommandParsing passed
   ✓ testSwarmTelemetryBoxFormatting passed
   ✓ testExecutiveSynthesisBoxFormatting passed
-All 14 BluiCli tests passed successfully!
+All 15 BluiCli tests passed successfully!
 
 Running SwarmEngine verification suite...
   ✓ testDefaultPersonas passed
@@ -327,6 +338,14 @@ Running SwarmEngine verification suite...
   ✓ testDynamicBudgetTripDuringExecution passed
   ✓ testBoostPersonasAndMockFindings passed
 All 6 SwarmEngine tests passed successfully!
+
+Running OpenRouterClient verification suite...
+  ✓ testDefaultModelAndReasoningEffort passed
+  ✓ testMissingApiKeyThrowsException passed
+  ✓ testPayloadSerialization passed
+  ✓ testThinkTagSanitization passed
+  ✓ testTokenUsageExtraction passed
+All 5 OpenRouterClient tests passed successfully!
 ```
 
 ---

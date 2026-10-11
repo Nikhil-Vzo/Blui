@@ -20,6 +20,11 @@ public final class EnvConfig {
 
     public record VariableDef(String key, String description, boolean isSecret, String defaultValue) {}
 
+    public static final List<VariableDef> OPENROUTER_VARS = List.of(
+            new VariableDef("OPENROUTER_API_KEY", "OpenRouter API Key (https://openrouter.ai/keys)", true, ""),
+            new VariableDef("OPENROUTER_MODEL", "OpenRouter Model ID (Default: nvidia/nemotron-3.5-lightning:free)", false, "nvidia/nemotron-3.5-lightning:free")
+    );
+
     public static final List<VariableDef> GEMINI_VARS = List.of(
             new VariableDef("GEMINI_API_KEY", "Google Gemini API Key (AI Studio)", true, "")
     );
@@ -29,11 +34,15 @@ public final class EnvConfig {
     );
 
     public static final List<VariableDef> MANAGED_VARS = List.of(
+            new VariableDef("OPENROUTER_API_KEY", "OpenRouter API Key (https://openrouter.ai/keys)", true, ""),
             new VariableDef("GEMINI_API_KEY", "Google Gemini API Key (AI Studio)", true, ""),
             new VariableDef("OLLAMA_MODEL", "Local Ollama Model Name (Default: llama3.2)", false, "llama3.2")
     );
 
     public static final List<VariableDef> ADVANCED_VARS = List.of(
+            new VariableDef("OPENROUTER_API_KEY", "OpenRouter API Key (https://openrouter.ai/keys)", true, ""),
+            new VariableDef("OPENROUTER_MODEL", "OpenRouter Model ID", false, "nvidia/nemotron-3.5-lightning:free"),
+            new VariableDef("OPENROUTER_REASONING_EFFORT", "Thinking/Reasoning Effort (high/max/medium/low)", false, "high"),
             new VariableDef("GEMINI_API_KEY", "Google Gemini API Key (AI Studio)", true, ""),
             new VariableDef("GEMINI_MODEL", "Gemini Model (Default: gemini-3.5-flash)", false, "gemini-3.5-flash"),
             new VariableDef("OLLAMA_HOST", "Local Ollama Host Endpoint", false, "http://localhost:11434"),
@@ -185,31 +194,38 @@ public final class EnvConfig {
         if (targetProvider == null || targetProvider.isBlank()) {
             out.accept("\n" + CYAN + "┌─ ENVIRONMENT SETUP ────────────────────────────────────────────────┐" + RESET);
             out.accept(CYAN + "│ " + WHITE + "Choose provider to configure:                                      " + CYAN + "│" + RESET);
-            out.accept(CYAN + "│   " + GREEN + "[1] Google Gemini" + GRAY + " (API Key)                                      " + CYAN + "│" + RESET);
-            out.accept(CYAN + "│   " + BLUE + "[2] Local Ollama" + GRAY + "  (Model Name)                                   " + CYAN + "│" + RESET);
-            out.accept(CYAN + "│   " + YELLOW + "[3] Both Providers" + GRAY + " (Gemini Key + Ollama Model)                     " + CYAN + "│" + RESET);
-            out.accept(CYAN + "│   " + PURPLE + "[4] Advanced" + GRAY + "       (All Settings & Endpoints)                      " + CYAN + "│" + RESET);
+            out.accept(CYAN + "│   " + GREEN + "[1] OpenRouter" + GRAY + "    (Nemotron 3.5 Lightning / Any Model)           " + CYAN + "│" + RESET);
+            out.accept(CYAN + "│   " + BLUE + "[2] Google Gemini" + GRAY + " (Gemini 3.5 Flash)                             " + CYAN + "│" + RESET);
+            out.accept(CYAN + "│   " + YELLOW + "[3] Local Ollama" + GRAY + "  (Model Name)                                   " + CYAN + "│" + RESET);
+            out.accept(CYAN + "│   " + PURPLE + "[4] All Providers" + GRAY + " (OpenRouter, Gemini, Ollama)                   " + CYAN + "│" + RESET);
+            out.accept(CYAN + "│   " + WHITE + "[5] Advanced" + GRAY + "      (All Settings, Endpoints & Reasoning)          " + CYAN + "│" + RESET);
             out.accept(CYAN + "└────────────────────────────────────────────────────────────────────┘" + RESET);
-            outInline.accept(BOLD + "Enter choice [1-4] (Default: 1 for Gemini): " + RESET);
+            outInline.accept(BOLD + "Enter choice [1-5] (Default: 1 for OpenRouter): " + RESET);
 
             String choice = "";
             if (scanner.hasNextLine()) {
                 choice = scanner.nextLine().trim();
             }
 
-            if ("2".equals(choice) || "ollama".equalsIgnoreCase(choice)) {
+            if ("2".equals(choice) || "gemini".equalsIgnoreCase(choice)) {
+                targetVars = GEMINI_VARS;
+                providerTitle = "Google Gemini";
+            } else if ("3".equals(choice) || "ollama".equalsIgnoreCase(choice)) {
                 targetVars = OLLAMA_VARS;
                 providerTitle = "Local Ollama";
-            } else if ("3".equals(choice) || "both".equalsIgnoreCase(choice)) {
+            } else if ("4".equals(choice) || "all".equalsIgnoreCase(choice) || "both".equalsIgnoreCase(choice)) {
                 targetVars = MANAGED_VARS;
-                providerTitle = "Both Providers";
-            } else if ("4".equals(choice) || "advanced".equalsIgnoreCase(choice) || "all".equalsIgnoreCase(choice)) {
+                providerTitle = "All Providers";
+            } else if ("5".equals(choice) || "advanced".equalsIgnoreCase(choice)) {
                 targetVars = ADVANCED_VARS;
                 providerTitle = "Advanced Settings";
             } else {
-                targetVars = GEMINI_VARS;
-                providerTitle = "Google Gemini";
+                targetVars = OPENROUTER_VARS;
+                providerTitle = "OpenRouter";
             }
+        } else if ("openrouter".equalsIgnoreCase(targetProvider)) {
+            targetVars = OPENROUTER_VARS;
+            providerTitle = "OpenRouter";
         } else if ("gemini".equalsIgnoreCase(targetProvider)) {
             targetVars = GEMINI_VARS;
             providerTitle = "Google Gemini";

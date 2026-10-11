@@ -23,13 +23,14 @@ public class BluiCliTest {
         testClarificationDetection();
         testSystemPromptDirectives();
         testGeminiModelDefaults();
+        testOpenRouterModelDefaultsAndProviderResolution();
         testSwarmHeaderCommandIncluded();
         testBenchCommandRemovedFromHeader();
         testSwarmCommandParsing();
         testSwarmTelemetryBoxFormatting();
         testExecutiveSynthesisBoxFormatting();
 
-        System.out.println("All 14 BluiCli tests passed successfully!");
+        System.out.println("All 15 BluiCli tests passed successfully!");
     }
 
     private static void testCardWidthsAndAlignment() {
@@ -255,6 +256,21 @@ public class BluiCliTest {
                 "FALLBACK_MODEL must be gemini-3.7-flash");
 
         System.out.println("  ✓ testGeminiModelDefaults passed");
+    }
+
+    private static void testOpenRouterModelDefaultsAndProviderResolution() {
+        assertCondition("nvidia/nemotron-3.5-lightning:free".equals(blui.llm.OpenRouterClient.DEFAULT_MODEL),
+                "DEFAULT_MODEL must be nvidia/nemotron-3.5-lightning:free");
+        assertCondition("high".equals(blui.llm.OpenRouterClient.DEFAULT_REASONING_EFFORT),
+                "DEFAULT_REASONING_EFFORT must be high");
+
+        blui.llm.OpenRouterClient client = new blui.llm.OpenRouterClient("test-key");
+        assertCondition("nvidia/nemotron-3.5-lightning:free".equals(client.modelName()),
+                "Client model name must match default model");
+        assertCondition("high".equals(client.reasoningEffort()),
+                "Client reasoning effort must match default");
+
+        System.out.println("  ✓ testOpenRouterModelDefaultsAndProviderResolution passed");
     }
 
     private static void testSwarmHeaderCommandIncluded() {

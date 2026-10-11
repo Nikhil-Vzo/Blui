@@ -64,12 +64,33 @@ public final class MinimalJson {
         for (int i = quoteStart + 1; i < json.length(); i++) {
             char c = json.charAt(i);
             if (escaped) {
-                sb.append(c);
+                switch (c) {
+                    case '"' -> sb.append('"');
+                    case '\\' -> sb.append('\\');
+                    case '/' -> sb.append('/');
+                    case 'b' -> sb.append('\b');
+                    case 'f' -> sb.append('\f');
+                    case 'n' -> sb.append('\n');
+                    case 'r' -> sb.append('\r');
+                    case 't' -> sb.append('\t');
+                    case 'u' -> {
+                        if (i + 4 < json.length()) {
+                            String hex = json.substring(i + 1, i + 5);
+                            try {
+                                sb.append((char) Integer.parseInt(hex, 16));
+                                i += 4;
+                            } catch (NumberFormatException e) {
+                                sb.append("\\u");
+                            }
+                        }
+                    }
+                    default -> sb.append(c);
+                }
                 escaped = false;
             } else if (c == '\\') {
                 escaped = true;
             } else if (c == '"') {
-                return unescape(sb.toString());
+                return sb.toString();
             } else {
                 sb.append(c);
             }
