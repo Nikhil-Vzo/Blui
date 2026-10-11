@@ -18,14 +18,14 @@ public class EnvConfigTest {
         testLoadAndSaveEnv();
         testInlineSet();
         testStreamlinedVariableLists();
+        testDirectPastedApiKeyAtMenuPrompt();
 
-        System.out.println("All 5 EnvConfig tests passed successfully!");
+        System.out.println("All 6 EnvConfig tests passed successfully!");
     }
 
     private static void testStreamlinedVariableLists() {
-        assertCondition(EnvConfig.OPENROUTER_VARS.size() == 2, "OPENROUTER_VARS should contain 2 entries");
+        assertCondition(EnvConfig.OPENROUTER_VARS.size() == 1, "OPENROUTER_VARS should only contain 1 entry (OPENROUTER_API_KEY)");
         assertCondition("OPENROUTER_API_KEY".equals(EnvConfig.OPENROUTER_VARS.get(0).key()), "OPENROUTER_VARS[0] should be OPENROUTER_API_KEY");
-        assertCondition("OPENROUTER_MODEL".equals(EnvConfig.OPENROUTER_VARS.get(1).key()), "OPENROUTER_VARS[1] should be OPENROUTER_MODEL");
 
         assertCondition(EnvConfig.GEMINI_VARS.size() == 1, "GEMINI_VARS should only contain GEMINI_API_KEY");
         assertCondition("GEMINI_API_KEY".equals(EnvConfig.GEMINI_VARS.get(0).key()), "GEMINI_VARS should be GEMINI_API_KEY");
@@ -37,6 +37,16 @@ public class EnvConfigTest {
         assertCondition(EnvConfig.ADVANCED_VARS.size() == 7, "ADVANCED_VARS should contain all 7 settings");
 
         System.out.println("  ✓ testStreamlinedVariableLists passed");
+    }
+
+    private static void testDirectPastedApiKeyAtMenuPrompt() {
+        java.util.Scanner scanner = new java.util.Scanner("sk-or-v1-abc123test\n");
+        StringBuilder outBuf = new StringBuilder();
+        Map<String, String> result = EnvConfig.runInteractiveWizard(scanner, s -> outBuf.append(s).append("\n"), s -> outBuf.append(s), null);
+
+        assertCondition("sk-or-v1-abc123test".equals(result.get("OPENROUTER_API_KEY")),
+                "Must save directly pasted OpenRouter API key from menu prompt");
+        System.out.println("  ✓ testDirectPastedApiKeyAtMenuPrompt passed");
     }
 
     private static void testKeepChoice() {

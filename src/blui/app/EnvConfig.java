@@ -21,8 +21,7 @@ public final class EnvConfig {
     public record VariableDef(String key, String description, boolean isSecret, String defaultValue) {}
 
     public static final List<VariableDef> OPENROUTER_VARS = List.of(
-            new VariableDef("OPENROUTER_API_KEY", "OpenRouter API Key (https://openrouter.ai/keys)", true, ""),
-            new VariableDef("OPENROUTER_MODEL", "OpenRouter Model ID (Default: nvidia/nemotron-3.5-lightning:free)", false, "nvidia/nemotron-3.5-lightning:free")
+            new VariableDef("OPENROUTER_API_KEY", "OpenRouter API Key (https://openrouter.ai/keys)", true, "")
     );
 
     public static final List<VariableDef> GEMINI_VARS = List.of(
@@ -205,6 +204,25 @@ public final class EnvConfig {
             String choice = "";
             if (scanner.hasNextLine()) {
                 choice = scanner.nextLine().trim();
+            }
+
+            // If user directly pasted an API key at the menu prompt, save it immediately
+            if (choice.startsWith("sk-or-") || (choice.startsWith("sk-") && choice.length() > 20)) {
+                try {
+                    saveVar(DEFAULT_ENV_PATH, "OPENROUTER_API_KEY", choice);
+                    out.accept(GREEN + "✓ Detected OpenRouter API key (" + mask("OPENROUTER_API_KEY", choice) + ") — saved to .env!\n" + RESET);
+                } catch (IOException e) {
+                    out.accept(RED + "✗ Error saving .env: " + e.getMessage() + "\n" + RESET);
+                }
+                return load(DEFAULT_ENV_PATH);
+            } else if (choice.startsWith("AIzaSy")) {
+                try {
+                    saveVar(DEFAULT_ENV_PATH, "GEMINI_API_KEY", choice);
+                    out.accept(GREEN + "✓ Detected Google Gemini API key (" + mask("GEMINI_API_KEY", choice) + ") — saved to .env!\n" + RESET);
+                } catch (IOException e) {
+                    out.accept(RED + "✗ Error saving .env: " + e.getMessage() + "\n" + RESET);
+                }
+                return load(DEFAULT_ENV_PATH);
             }
 
             if ("2".equals(choice) || "gemini".equalsIgnoreCase(choice)) {

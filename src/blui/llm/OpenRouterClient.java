@@ -39,7 +39,11 @@ public final class OpenRouterClient implements LlmProvider {
 
     public OpenRouterClient(String apiKey, String model, String reasoningEffort, Duration timeout) {
         this.apiKey = apiKey != null ? apiKey.trim() : "";
-        this.model = model != null && !model.isBlank() ? model.trim() : DEFAULT_MODEL;
+        String m = model != null && !model.isBlank() ? model.trim() : DEFAULT_MODEL;
+        if (m.startsWith("sk-") || m.contains("••••")) {
+            m = DEFAULT_MODEL;
+        }
+        this.model = m;
         this.reasoningEffort = reasoningEffort != null && !reasoningEffort.isBlank() ? reasoningEffort.trim() : DEFAULT_REASONING_EFFORT;
         this.timeout = timeout != null ? timeout : Duration.ofMinutes(2);
         this.httpClient = HttpClient.newBuilder()
@@ -54,6 +58,12 @@ public final class OpenRouterClient implements LlmProvider {
 
     private static String resolveDefaultModel() {
         String env = System.getenv("OPENROUTER_MODEL");
+        if (env == null || env.isBlank()) {
+            env = blui.app.EnvConfig.get("OPENROUTER_MODEL");
+        }
+        if (env != null && (env.startsWith("sk-") || env.contains("••••") || env.isBlank())) {
+            return DEFAULT_MODEL;
+        }
         return (env != null && !env.isBlank()) ? env.trim() : DEFAULT_MODEL;
     }
 

@@ -16,8 +16,16 @@ public class OpenRouterClientTest {
         testPayloadSerialization();
         testThinkTagSanitization();
         testTokenUsageExtraction();
+        testAccidentalApiKeyAsModelRevertsToDefault();
 
-        System.out.println("All 5 OpenRouterClient tests passed successfully!");
+        System.out.println("All 6 OpenRouterClient tests passed successfully!");
+    }
+
+    private static void testAccidentalApiKeyAsModelRevertsToDefault() {
+        OpenRouterClient client = new OpenRouterClient("test-key", "sk-or-v1-fake-mock-test-key-00000000");
+        assertCondition("nvidia/nemotron-3.5-lightning:free".equals(client.modelName()),
+                "Accidental API key provided as model name must revert to DEFAULT_MODEL");
+        System.out.println("  ✓ testAccidentalApiKeyAsModelRevertsToDefault passed");
     }
 
     private static void testDefaultModelAndReasoningEffort() {
