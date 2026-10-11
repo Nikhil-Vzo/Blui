@@ -27,8 +27,10 @@ import java.nio.file.StandardOpenOption;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Scanner;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Interactive Terminal CLI Dashboard for Blui.
@@ -318,16 +320,45 @@ public class BluiCli {
         writelnUtf8("");
     }
 
-    private static void replayTrace(String traceId) {
+    private static void replayTrace(String rawTraceId) {
+        if (rawTraceId == null || rawTraceId.isBlank()) {
+            writelnUtf8(GRAY + "Usage: blui replay <trace_id>" + RESET);
+            return;
+        }
+        String id = rawTraceId.trim();
+        if (id.startsWith("#")) id = id.substring(1);
+        if (!id.startsWith("trace_") && id.matches("\\d+")) {
+            id = "trace_" + id;
+        }
         try {
-            String json = traceStore.readTraceJson(traceId);
-            writelnUtf8(CYAN + BOLD + "\n[REPLAY] Flight Ledger: " + traceId + RESET);
+            String json = traceStore.readTraceJson(id);
+            writelnUtf8(CYAN + BOLD + "\n[REPLAY] Flight Ledger: " + id + RESET);
             writelnUtf8(DIM + "─".repeat(50) + RESET);
             writelnUtf8(json);
             writelnUtf8(DIM + "─".repeat(50) + RESET + "\n");
         } catch (Exception e) {
             writelnUtf8(RED + "Error replaying trace: " + e.getMessage() + RESET + "\n");
         }
+    }
+
+    static String cleanGoal(String goal) {
+        if (goal == null) return "";
+        String cleaned = goal.trim();
+        while (true) {
+            boolean modified = false;
+            if (cleaned.startsWith("<") && cleaned.endsWith(">") && cleaned.length() >= 2) {
+                cleaned = cleaned.substring(1, cleaned.length() - 1).trim();
+                modified = true;
+            }
+            if ((cleaned.startsWith("\"") && cleaned.endsWith("\"")) || (cleaned.startsWith("'") && cleaned.endsWith("'"))) {
+                if (cleaned.length() >= 2) {
+                    cleaned = cleaned.substring(1, cleaned.length() - 1).trim();
+                    modified = true;
+                }
+            }
+            if (!modified) break;
+        }
+        return cleaned;
     }
 
     private static void runBenchmark() {
@@ -377,7 +408,8 @@ public class BluiCli {
         return null;
     }
 
-    private static void executeAgent(String goal, Scanner scanner) {
+    private static void executeAgent(String rawGoal, Scanner scanner) {
+        String goal = cleanGoal(rawGoal);
         String apiKey = resolveGeminiApiKey(scanner);
 
         LlmProvider provider = null;
@@ -405,7 +437,8 @@ public class BluiCli {
         runLiveAgent(goal, provider);
     }
 
-    private static void runLiveAgent(String goal, LlmProvider provider) {
+    private static void runLiveAgent(String rawGoal, LlmProvider provider) {
+        String goal = cleanGoal(rawGoal);
         writelnUtf8(CYAN + "[ENGINE] Initializing Agent for goal: '" + goal + "'..." + RESET);
 
         Governor governor = new Governor(new Budget(50000, 1.00, 0.000003), new CycleDetector(3));
@@ -416,8 +449,7 @@ public class BluiCli {
         HttpTool httpTool = new HttpTool();
 
         AgentTrace trace = new AgentTrace();
-        int step = 0;
-        trace.append(StepTrace.of(step++, new AgentState.Initialized(goal), 0));
+        trace.append(StepTrace.of(0, new AgentState.Initialized(goal), 0));
 
         List<LlmProvider.Message> conversation = new ArrayList<>();
         conversation.add(new LlmProvider.Message("system", buildSystemPrompt()));
@@ -427,6 +459,8 @@ public class BluiCli {
         int totalPromptTokens = 0;
         int totalCompletionTokens = 0;
         long startTime = System.currentTimeMillis();
+        int step = 1;
+        String traceId = "trace_" + System.currentTimeMillis();
 
         try {
             int maxSteps = 10;
@@ -434,17 +468,50 @@ public class BluiCli {
                 // 1. Governor safety check
                 governor.inspectStep(currentState);
 
-                // 2. Planning phase
+                // 2. Planning phase with live virtual thread Loom spinner
                 currentState = new AgentState.Thinking(goal, step);
-                writelnUtf8(DIM + "  Step " + step + " [Thinking] Querying " + provider.modelName() + "..." + RESET);
 
-                LlmProvider.LlmResponse response = provider.generate(conversation);
+                AtomicBoolean spinning = new AtomicBoolean(true);
+                long t0 = System.currentTimeMillis();
+                int currentStep = step;
+                Thread spinner = Thread.ofVirtual().start(() -> {
+                    char[] frames = {'⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'};
+                    int i = 0;
+                    while (spinning.get()) {
+                        double elapsed = (System.currentTimeMillis() - t0) / 1000.0;
+                        writeUtf8("\r\033[K" + CYAN + "  Step " + currentStep + " [Thinking] "
+                                + frames[i++ % frames.length] + " Querying " + provider.modelName()
+                                + String.format(Locale.US, " (%.1fs)...", elapsed) + RESET);
+                        try {
+                            Thread.sleep(80);
+                        } catch (InterruptedException e) {
+                            break;
+                        }
+                    }
+                });
+
+                LlmProvider.LlmResponse response;
+                try {
+                    response = provider.generate(conversation);
+                } finally {
+                    spinning.set(false);
+                    spinner.interrupt();
+                    try {
+                        spinner.join(200);
+                    } catch (InterruptedException ignored) {}
+                }
+
+                double stepElapsed = (System.currentTimeMillis() - t0) / 1000.0;
+                writeUtf8("\r\033[K" + DIM + "  Step " + currentStep + " [Thinking] Querying "
+                        + provider.modelName() + String.format(Locale.US, " (%.1fs)", stepElapsed) + RESET + "\n");
+
                 totalPromptTokens += response.promptTokens();
                 totalCompletionTokens += response.completionTokens();
                 governor.budget().recordUsage(response.totalTokens());
-                trace.append(StepTrace.of(step++, currentState, response.totalTokens()));
+                trace.append(StepTrace.of(step, currentState, response.totalTokens()));
 
                 if (response.hasToolCall()) {
+                    step++;
                     String toolName = response.toolName();
                     String toolInput = response.toolInput();
 
@@ -460,12 +527,13 @@ public class BluiCli {
                             Duration.ofSeconds(15)
                     );
                     ToolResults res = results.get(0);
-                    trace.append(StepTrace.of(step++, currentState, 0));
+                    trace.append(StepTrace.of(step, currentState, 0));
 
                     writelnUtf8(DIM + "    └─ Result (" + res.durationMs() + "ms, success=" + res.isSuccess() + "): " + summarize(res.output()) + RESET);
 
                     conversation.add(new LlmProvider.Message("assistant", response.content()));
                     conversation.add(new LlmProvider.Message("user", "OBSERVATION (" + targetTool.name() + "):\n" + res.output()));
+                    step++;
                 } else {
                     // Final answer
                     currentState = new AgentState.Completed(response.content(), step);
@@ -473,7 +541,10 @@ public class BluiCli {
                     writelnUtf8(GREEN + BOLD + "\n✓ Goal Completed!" + RESET);
                     writelnUtf8(WHITE + response.content() + RESET + "\n");
                     long durationMs = System.currentTimeMillis() - startTime;
-                    printTelemetrySummary(totalPromptTokens, totalCompletionTokens, governor.budget().currentCostUsd(), step, durationMs, provider.modelName());
+                    try {
+                        traceStore.save(traceId, goal, trace);
+                    } catch (Exception ignored) {}
+                    printTelemetrySummary(totalPromptTokens, totalCompletionTokens, governor.budget().currentCostUsd(), step, durationMs, provider.modelName(), traceId);
                     break;
                 }
             }
@@ -483,7 +554,10 @@ public class BluiCli {
                 trace.append(StepTrace.of(step, currentState, 0));
                 writelnUtf8(RED + "\n✗ Execution halted: Max steps limit exceeded." + RESET);
                 long durationMs = System.currentTimeMillis() - startTime;
-                printTelemetrySummary(totalPromptTokens, totalCompletionTokens, governor.budget().currentCostUsd(), step, durationMs, provider.modelName());
+                try {
+                    traceStore.save(traceId, goal, trace);
+                } catch (Exception ignored) {}
+                printTelemetrySummary(totalPromptTokens, totalCompletionTokens, governor.budget().currentCostUsd(), step, durationMs, provider.modelName(), traceId);
             }
 
         } catch (Governor.BudgetExceededException | Governor.LoopDetectedException ge) {
@@ -491,22 +565,19 @@ public class BluiCli {
             trace.append(StepTrace.of(step, currentState, 0));
             writelnUtf8(RED + "\n[GOVERNOR HALT] " + ge.getMessage() + RESET);
             long durationMs = System.currentTimeMillis() - startTime;
-            printTelemetrySummary(totalPromptTokens, totalCompletionTokens, governor.budget().currentCostUsd(), step, durationMs, provider.modelName());
+            try {
+                traceStore.save(traceId, goal, trace);
+            } catch (Exception ignored) {}
+            printTelemetrySummary(totalPromptTokens, totalCompletionTokens, governor.budget().currentCostUsd(), step, durationMs, provider.modelName(), traceId);
         } catch (Exception e) {
             currentState = new AgentState.Failed("Execution error: " + e.getMessage(), step);
             trace.append(StepTrace.of(step, currentState, 0));
             writelnUtf8(RED + "\n[ERROR] " + e.getMessage() + RESET);
             long durationMs = System.currentTimeMillis() - startTime;
-            printTelemetrySummary(totalPromptTokens, totalCompletionTokens, governor.budget().currentCostUsd(), step, durationMs, provider.modelName());
-        }
-
-        // Auto-save flight trace to disk
-        try {
-            String traceId = "trace_" + System.currentTimeMillis();
-            Path savedPath = traceStore.save(traceId, goal, trace);
-            writelnUtf8(GRAY + "  [FLIGHT RECORDER] Persisted to " + savedPath.toString() + RESET);
-        } catch (Exception e) {
-            writelnUtf8(GRAY + "  [FLIGHT RECORDER] Note: Trace could not be written to disk: " + e.getMessage() + RESET);
+            try {
+                traceStore.save(traceId, goal, trace);
+            } catch (Exception ignored) {}
+            printTelemetrySummary(totalPromptTokens, totalCompletionTokens, governor.budget().currentCostUsd(), step, durationMs, provider.modelName(), traceId);
         }
 
         writelnUtf8("");
@@ -528,7 +599,11 @@ public class BluiCli {
     }
 
     public static void printTelemetrySummary(int promptTokens, int completionTokens, double costUsd, int steps, long durationMs, String model) {
-        List<String> lines = buildTelemetryLines(promptTokens, completionTokens, costUsd, steps, durationMs, model);
+        printTelemetrySummary(promptTokens, completionTokens, costUsd, steps, durationMs, model, null);
+    }
+
+    public static void printTelemetrySummary(int promptTokens, int completionTokens, double costUsd, int steps, long durationMs, String model, String traceId) {
+        List<String> lines = buildTelemetryLines(promptTokens, completionTokens, costUsd, steps, durationMs, model, traceId);
         for (String line : lines) {
             writelnUtf8(line);
         }
@@ -536,14 +611,25 @@ public class BluiCli {
     }
 
     static List<String> buildTelemetryLines(int promptTokens, int completionTokens, double costUsd, int steps, long durationMs, String model) {
+        return buildTelemetryLines(promptTokens, completionTokens, costUsd, steps, durationMs, model, null);
+    }
+
+    static List<String> buildTelemetryLines(int promptTokens, int completionTokens, double costUsd, int steps, long durationMs, String model, String traceId) {
         int totalTokens = promptTokens + completionTokens;
         double seconds = durationMs / 1000.0;
-        String costFormatted = String.format(java.util.Locale.US, "$%.5f", costUsd);
-        String durationFormatted = String.format(java.util.Locale.US, "%.2fs (%dms)", seconds, durationMs);
+        String costFormatted = String.format(Locale.US, "$%.5f", costUsd);
+        String durationFormatted = String.format(Locale.US, "%.2fs", seconds);
 
-        String line1 = String.format(java.util.Locale.US, "Tokens:   %d in (prompt) │ %d out (completion) │ %d total", promptTokens, completionTokens, totalTokens);
-        String line2 = String.format(java.util.Locale.US, "Latency:  %s │ Steps: %d │ Cost: %s", durationFormatted, steps, costFormatted);
-        String line3 = String.format(java.util.Locale.US, "Model:    %s │ Governor: Nominal (Budget OK)", model);
+        String line1 = String.format(Locale.US, "Tokens:   %d in (prompt) │ %d out (completion) │ %d total", promptTokens, completionTokens, totalTokens);
+        String line2 = String.format(Locale.US, "Latency:  %s │ Steps: %d │ Cost: %s", durationFormatted, steps, costFormatted);
+
+        String line3;
+        if (traceId != null && !traceId.isBlank()) {
+            String shortId = traceId.startsWith("trace_") ? traceId.substring(6) : traceId;
+            line3 = String.format(Locale.US, "Model:    %s │ Trace: #%s │ Gov: Nominal", model, shortId);
+        } else {
+            line3 = String.format(Locale.US, "Model:    %s │ Governor: Nominal (Budget OK)", model);
+        }
 
         int boxWidth = 72;
         int inner = boxWidth - 4; // 68 chars
@@ -563,10 +649,19 @@ public class BluiCli {
     }
 
     static List<String> buildTelemetryLinesForTesting(int promptTokens, int completionTokens, double costUsd, int steps, long durationMs, String model) {
-        return buildTelemetryLines(promptTokens, completionTokens, costUsd, steps, durationMs, model);
+        return buildTelemetryLines(promptTokens, completionTokens, costUsd, steps, durationMs, model, null);
     }
 
-    private static void runMockAgent(String goal) {
+    static List<String> buildTelemetryLinesForTesting(int promptTokens, int completionTokens, double costUsd, int steps, long durationMs, String model, String traceId) {
+        return buildTelemetryLines(promptTokens, completionTokens, costUsd, steps, durationMs, model, traceId);
+    }
+
+    static String cleanGoalForTesting(String goal) {
+        return cleanGoal(goal);
+    }
+
+    private static void runMockAgent(String rawGoal) {
+        String goal = cleanGoal(rawGoal);
         writelnUtf8(CYAN + "\n[ENGINE] Initializing Agent for goal: '" + goal + "'..." + RESET);
         Governor governor = new Governor(new Budget(5000, 1.00, 0.000003), new CycleDetector(3));
         LoomRunner runner = new LoomRunner();
@@ -595,17 +690,11 @@ public class BluiCli {
         }
 
         long durationMs = System.currentTimeMillis() - startTime;
-        printTelemetrySummary(0, 0, 0.0, trace.size(), durationMs, "simulation/mock");
-
-        // Auto-save flight trace to disk
+        String traceId = "trace_" + System.currentTimeMillis();
         try {
-            String traceId = "trace_" + System.currentTimeMillis();
-            Path savedPath = traceStore.save(traceId, goal, trace);
-            writelnUtf8(GRAY + "  [FLIGHT RECORDER] Persisted to " + savedPath.toString() + RESET);
-        } catch (Exception e) {
-            writelnUtf8(GRAY + "  [FLIGHT RECORDER] Note: Trace could not be written to disk: " + e.getMessage() + RESET);
-        }
-
+            traceStore.save(traceId, goal, trace);
+        } catch (Exception ignored) {}
+        printTelemetrySummary(0, 0, 0.0, trace.size(), durationMs, "simulation/mock", traceId);
         writelnUtf8("");
     }
 

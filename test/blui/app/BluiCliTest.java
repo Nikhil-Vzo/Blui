@@ -13,9 +13,10 @@ public class BluiCliTest {
         testCardWidthsAndAlignment();
         testRightSideHeaderWidth();
         testSummarizeBoundary();
+        testCleanGoal();
         testTelemetryCardFormatting();
 
-        System.out.println("All 4 BluiCli tests passed successfully!");
+        System.out.println("All 5 BluiCli tests passed successfully!");
     }
 
     private static void testCardWidthsAndAlignment() {
@@ -66,7 +67,19 @@ public class BluiCliTest {
         System.out.println("  ✓ testSummarizeBoundary passed");
     }
 
+    private static void testCleanGoal() {
+        assertCondition("what time is it".equals(BluiCli.cleanGoalForTesting("<what time is it>")), "Must strip angle brackets");
+        assertCondition("what time is it".equals(BluiCli.cleanGoalForTesting("\"what time is it\"")), "Must strip double quotes");
+        assertCondition("what time is it".equals(BluiCli.cleanGoalForTesting("'what time is it'")), "Must strip single quotes");
+        assertCondition("what time is it".equals(BluiCli.cleanGoalForTesting("<\"what time is it\">")), "Must strip nested angle brackets and quotes");
+        assertCondition("what time is it".equals(BluiCli.cleanGoalForTesting("  <what time is it>  ")), "Must trim outer whitespace");
+        assertCondition("".equals(BluiCli.cleanGoalForTesting(null)), "Null should return empty string");
+        assertCondition("".equals(BluiCli.cleanGoalForTesting("<>")), "Empty angle brackets should return empty string");
+        System.out.println("  ✓ testCleanGoal passed");
+    }
+
     private static void testTelemetryCardFormatting() {
+        // Test standard formatting without trace ID
         List<String> telemetryLines = BluiCli.buildTelemetryLinesForTesting(
                 225, 55, 0.00084, 2, 1240, "gemini-3.8-flash"
         );
@@ -83,7 +96,21 @@ public class BluiCliTest {
         assertCondition(contentJoined.contains("225 in (prompt)"), "Must show prompt tokens");
         assertCondition(contentJoined.contains("55 out (completion)"), "Must show completion tokens");
         assertCondition(contentJoined.contains("280 total"), "Must show total tokens");
+        assertCondition(contentJoined.contains("1.24s"), "Must format latency as seconds (1.24s)");
         assertCondition(contentJoined.contains("gemini-3.8-flash"), "Must show model name");
+
+        // Test with embedded trace ID
+        List<String> withTrace = BluiCli.buildTelemetryLinesForTesting(
+                225, 55, 0.00084, 2, 1240, "gemini-3.8-flash", "trace_1791726451987"
+        );
+        for (String line : withTrace) {
+            int visualLen = stripAnsi(line).length();
+            assertCondition(visualLen == boxWidth,
+                    "With-trace line visual length must be " + boxWidth + " but got " + visualLen + ": '" + stripAnsi(line) + "'");
+        }
+        String withTraceJoined = String.join("\n", withTrace);
+        assertCondition(withTraceJoined.contains("Trace: #1791726451987"), "Must show embedded trace ID");
+        assertCondition(withTraceJoined.contains("Gov: Nominal"), "Must show Gov: Nominal");
 
         System.out.println("  ✓ testTelemetryCardFormatting passed");
     }
