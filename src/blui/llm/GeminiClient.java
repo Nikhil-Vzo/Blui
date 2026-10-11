@@ -11,12 +11,12 @@ import java.util.regex.Pattern;
 
 /**
  * Zero-dependency client for Google AI Studio Gemini API (Free Tier).
- * Supports gemini-2.5-flash and gemini-1.5-flash with real token tracking.
+ * Supports gemini-3.5-flash and gemini-3.7-flash with real token tracking.
  */
 public final class GeminiClient implements LlmProvider {
 
-    private static final String DEFAULT_MODEL = "gemini-3.8-flash";
-    private static final String FALLBACK_MODEL = "gemini-3.5-flash";
+    public static final String DEFAULT_MODEL = "gemini-3.5-flash";
+    public static final String FALLBACK_MODEL = "gemini-3.7-flash";
     private static final String BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models/";
 
     private final String apiKey;

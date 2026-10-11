@@ -124,7 +124,7 @@ blui > exit                  # Terminates the shell session
 
 ## 🔑 LLM Provider & Hermes-Style Environment Setup
 
-Blui supports both **Cloud LLMs** (Google Gemini 3.8 Flash via Google AI Studio) and **100% Offline Local LLMs** (Ollama @ `localhost:11434`).
+Blui supports both **Cloud LLMs** (Google Gemini 3.5 Flash via Google AI Studio) and **100% Offline Local LLMs** (Ollama @ `localhost:11434`).
 
 ### Terminal-Native Hermes-Style Wizard (`blui > env`)
 Like Hermes Agent, you can inspect and update your environment directly inside the terminal:
@@ -202,19 +202,19 @@ Every component is written from scratch using pure Java 24 standard library prim
 | **`blui.governor`** | `Budget.java`<br>`CycleDetector.java`<br>`Governor.java` | **175 LOC** | Lock-free token/cost limits and sliding-window loop circuit breaker. |
 | **`blui.loom`** | `ToolExecution.java`<br>`LoomRunner.java` | **106 LOC** | Java 24 Virtual Threads executor running parallel tool calls with strict join SLAs. |
 | **`blui.tools`** | `ShellTool.java`<br>`FileTool.java`<br>`HttpTool.java` | **291 LOC** | **Pillar 1 (Hands)**: OS process execution with timeout kills, sandboxed workspace filesystem I/O, web fetcher. |
-| **`blui.llm`** | `MinimalJson.java`<br>`LlmProvider.java`<br>`GeminiClient.java`<br>`OllamaClient.java` | **400 LOC** | **Pillar 2 (Brain)**: Zero-dep JSON parser, Google Gemini API free tier (`gemini-3.8-flash`), local offline Ollama (`localhost:11434`), real token metering. |
+| **`blui.llm`** | `MinimalJson.java`<br>`LlmProvider.java`<br>`GeminiClient.java`<br>`OllamaClient.java` | **400 LOC** | **Pillar 2 (Brain)**: Zero-dep JSON parser, Google Gemini API free tier (`gemini-3.5-flash`), local offline Ollama (`localhost:11434`), real token metering. |
 | **`blui.replay`** | `StepTrace.java`<br>`AgentTrace.java`<br>`ReplayEngine.java`<br>`TraceStore.java`<br>`TraceStoreTest.java` | **339 LOC** | **Pillar 3 (Memory)**: Black-box flight recorder to `.blui/traces/*.json`, step-by-step post-mortem inspection, state restoration. |
 | **`blui.app`** | `TerminalArt.java`<br>`BluiCli.java`<br>`EnvConfig.java`<br>`EnvConfigTest.java`<br>`BluiCliTest.java` | **990 LOC** | Sub-pixel ANSI 24-bit Truecolor RGBA mascot renderer, hardware status cards, Hermes-style `.env` wizard, layout test suite, and interactive REPL shell. |
 | **Total** | **27 Java Files (23 src + 4 test)** | **2,560 LOC** | **100% Pure JDK Standard Library** |
 
 ---
 
-## 🧪 Verification & Testing (15/15 Tests Passing)
+## 🧪 Verification & Testing (20/20 Tests Passing)
 
 Blui includes standalone, zero-dependency verification suites with 100% passing tests:
 
 ```powershell
-# Compile & run full test suite (15/15 tests across 4 suites)
+# Compile & run full test suite (20/20 tests across 4 suites)
 javac -d bin (Get-ChildItem -Recurse -Filter "*.java" src).FullName (Get-ChildItem -Recurse -Filter "*.java" test).FullName
 java -cp bin blui.core.BluiEngineTest
 java -cp bin blui.replay.TraceStoreTest
@@ -247,8 +247,13 @@ Running BluiCli verification suite...
   ✓ testCardWidthsAndAlignment passed
   ✓ testRightSideHeaderWidth passed
   ✓ testSummarizeBoundary passed
+  ✓ testCleanGoal passed
   ✓ testTelemetryCardFormatting passed
-All 4 BluiCli tests passed successfully!
+  ✓ testMonologueSanitization passed
+  ✓ testClarificationDetection passed
+  ✓ testSystemPromptDirectives passed
+  ✓ testGeminiModelDefaults passed
+All 9 BluiCli tests passed successfully!
 ```
 
 ---

@@ -31,6 +31,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Scanner;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Interactive Terminal CLI Dashboard for Blui.
@@ -415,7 +417,7 @@ public class BluiCli {
         LlmProvider provider = null;
         if (apiKey != null && !apiKey.isBlank()) {
             String customModel = EnvConfig.get("GEMINI_MODEL");
-            provider = new GeminiClient(apiKey, customModel != null ? customModel : "gemini-3.8-flash", Duration.ofMinutes(2));
+            provider = new GeminiClient(apiKey, customModel != null ? customModel : "gemini-3.5-flash", Duration.ofMinutes(2));
             writelnUtf8(CYAN + "\n[BRAIN] Provider: Google Gemini (" + provider.modelName() + " via Google AI Studio)" + RESET);
         } else {
             String ollamaHost = EnvConfig.get("OLLAMA_HOST");
@@ -535,11 +537,16 @@ public class BluiCli {
                     conversation.add(new LlmProvider.Message("user", "OBSERVATION (" + targetTool.name() + "):\n" + res.output()));
                     step++;
                 } else {
-                    // Final answer
-                    currentState = new AgentState.Completed(response.content(), step);
+                    // Final answer or clarification request
+                    String sanitized = sanitizeMonologue(response.content());
+                    currentState = new AgentState.Completed(sanitized, step);
                     trace.append(StepTrace.of(step, currentState, 0));
-                    writelnUtf8(GREEN + BOLD + "\n✓ Goal Completed!" + RESET);
-                    writelnUtf8(WHITE + response.content() + RESET + "\n");
+                    if (isClarificationRequest(sanitized)) {
+                        writelnUtf8(CYAN + BOLD + "\n? Clarification Needed:" + RESET);
+                    } else {
+                        writelnUtf8(GREEN + BOLD + "\n✓ Goal Completed!" + RESET);
+                    }
+                    writelnUtf8(WHITE + sanitized + RESET + "\n");
                     long durationMs = System.currentTimeMillis() - startTime;
                     try {
                         traceStore.save(traceId, goal, trace);
@@ -698,7 +705,7 @@ public class BluiCli {
         writelnUtf8("");
     }
 
-    private static String buildSystemPrompt() {
+    static String buildSystemPrompt() {
         String os = System.getProperty("os.name", "unknown");
         boolean isWin = os.toLowerCase().contains("win");
         String shellHint = isWin ? "Windows CMD (use dir, cd, type, echo, mkdir, etc.)" : "POSIX Shell (use ls, pwd, cat, mkdir, etc.)";
@@ -720,7 +727,118 @@ public class BluiCli {
               INPUT: <Command>
             - Do NOT include markdown fences, preamble, pleasantries, or explanations before TOOL lines.
             - When the goal is achieved or no tool is needed, output the final answer directly without TOOL: lines.
+            - Strictly FORBIDDEN: Do NOT output any internal chain-of-thought, scratchpads, reasoning steps, or stream-of-consciousness monologues (such as "Wait, let's understand...", "The user inputted...", etc.). Respond directly with the required output.
+            - Ambiguous or Incomplete Goals: If the user goal is ambiguous, incomplete, a typo, or unclear (e.g. 'hu'), do NOT wander through files, explore directories, or execute arbitrary tools. Instead, immediately respond directly to the user asking for concise clarification.
             """.formatted(os, shellHint).stripIndent().trim();
+    }
+
+    static String sanitizeMonologue(String text) {
+        if (text == null) return "";
+        String cleaned = text.trim();
+
+        // 1. Strip XML-style thinking tags: <think>...</think>, <thought>...</thought>, etc.
+        cleaned = cleaned.replaceAll("(?is)<(think|thought|scratchpad)>.*?</\\1>", "").trim();
+        cleaned = cleaned.replaceAll("(?is)^<(think|thought|scratchpad)>.*?(?=(\\n\\n|\\Z))", "").trim();
+
+        // 2. Strip markdown thought fences: ```thought ... ```
+        cleaned = cleaned.replaceAll("(?is)```(?:thought|think|scratchpad)\\s*.*?```", "").trim();
+
+        // 3. Iteratively strip leading monologue sentences or lines
+        Pattern monologuePattern = Pattern.compile(
+                "(?is)^\\s*("
+                + "(?:wait\\s*[,!.]\\s*|wait\\s+let['’]?s\\s+)[^.!?\\n]*[.!?\\n]+\\s*"
+                + "|the user (?:inputted|input|entered|typed|wrote|said|is asking|asked)\\b[^.!?\\n]*[.!?\\n]+\\s*"
+                + "|let['’]?s (?:understand|see|analyze|figure out|examine|think)\\b[^.!?\\n]*[.!?\\n]+\\s*"
+                + "|let me (?:think|understand|see|analyze|figure out)\\b[^.!?\\n]*[.!?\\n]+\\s*"
+                + "|(?:thinking\\s*(?:process)?|thought\\s*(?:process)?|scratchpad|internal\\s*reasoning)\\s*:?\\s*[^.!?\\n]*[.!?\\n]+\\s*"
+                + "|this (?:looks|seems|appears) to be (?:a typo|ambiguous|an incomplete|unclear)\\b[^.!?\\n]*[.!?\\n]+\\s*"
+                + "|i (?:should|need to|must) ask (?:the user )?for (?:clarification|more info|details)\\b[^.!?\\n]*[.!?\\n]+\\s*"
+                + ")"
+        );
+
+        while (true) {
+            Matcher m = monologuePattern.matcher(cleaned);
+            if (m.find() && m.start() == 0) {
+                cleaned = cleaned.substring(m.end()).trim();
+            } else {
+                break;
+            }
+        }
+
+        // 4. Line-by-line fallback for scratchpad headers or lines
+        String[] lines = cleaned.split("\\R");
+        int startIndex = 0;
+        for (int i = 0; i < lines.length; i++) {
+            String l = lines[i].trim().toLowerCase(Locale.ROOT);
+            if (l.startsWith("wait, let's understand")
+                    || l.startsWith("wait, let me")
+                    || l.startsWith("wait, what")
+                    || l.startsWith("the user inputted")
+                    || l.startsWith("the user input is")
+                    || l.startsWith("the user typed")
+                    || l.startsWith("scratchpad:")
+                    || l.startsWith("thinking process:")
+                    || l.startsWith("thought process:")) {
+                startIndex = i + 1;
+            } else {
+                break;
+            }
+        }
+
+        if (startIndex > 0 && startIndex < lines.length) {
+            StringBuilder sb = new StringBuilder();
+            for (int i = startIndex; i < lines.length; i++) {
+                sb.append(lines[i]).append("\n");
+            }
+            cleaned = sb.toString().trim();
+        }
+
+        if (cleaned.isBlank()) {
+            return "Could you please clarify your request?";
+        }
+
+        return cleaned;
+    }
+
+    static boolean isClarificationRequest(String response) {
+        if (response == null || response.isBlank()) return false;
+        String trimmed = response.trim();
+        String lower = trimmed.toLowerCase(Locale.ROOT);
+
+        if (lower.contains("clarif")
+                || lower.contains("did you mean")
+                || lower.contains("what did you mean")
+                || lower.contains("what do you mean")
+                || lower.contains("please specify")
+                || lower.contains("could you specify")
+                || lower.contains("please provide more")
+                || lower.contains("could you provide more")
+                || lower.contains("what would you like")
+                || lower.contains("what do you want me to")
+                || lower.contains("what should i do")) {
+            return true;
+        }
+
+        if (trimmed.endsWith("?")) {
+            if (lower.contains("you") || lower.contains("your") || lower.contains("rephrase")
+                    || lower.contains("elaborate") || lower.contains("mean") || lower.contains("details")) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    static String sanitizeMonologueForTesting(String text) {
+        return sanitizeMonologue(text);
+    }
+
+    static boolean isClarificationRequestForTesting(String response) {
+        return isClarificationRequest(response);
+    }
+
+    static String buildSystemPromptForTesting() {
+        return buildSystemPrompt();
     }
 
     private static String padRight(String s, int n) {

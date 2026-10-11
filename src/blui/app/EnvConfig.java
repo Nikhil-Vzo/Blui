@@ -35,7 +35,7 @@ public final class EnvConfig {
 
     public static final List<VariableDef> ADVANCED_VARS = List.of(
             new VariableDef("GEMINI_API_KEY", "Google Gemini API Key (AI Studio)", true, ""),
-            new VariableDef("GEMINI_MODEL", "Gemini Model (Default: gemini-3.8-flash)", false, "gemini-3.8-flash"),
+            new VariableDef("GEMINI_MODEL", "Gemini Model (Default: gemini-3.5-flash)", false, "gemini-3.5-flash"),
             new VariableDef("OLLAMA_HOST", "Local Ollama Host Endpoint", false, "http://localhost:11434"),
             new VariableDef("OLLAMA_MODEL", "Local Ollama Model Name", false, "llama3.2")
     );
