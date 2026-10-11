@@ -85,16 +85,24 @@ Modern multi-agent frameworks are plagued by leaky abstractions, unobservable ex
 * **JDK 24+** (`java -version` returns `24.0.2` or later).
 * Any modern terminal (Windows Terminal, iTerm2, Kitty, Alacritty) with UTF-8 enabled.
 
-### 1. Clone & Launch
+### 1. Launch Options
+
+#### Option A: One-Click Launcher (Windows)
 ```powershell
-# Clone the repository
-git clone https://github.com/Nikhil-Vzo/Blui.git
-cd Blui
-
-# One-click launch on Windows (auto-sets UTF-8 code page)
 .\blui.bat
+```
 
-# Or manual compile & launch on any OS:
+#### Option B: Standalone Zero-Dependency JAR
+```powershell
+# Package standalone executable JAR (63 KB, zero dependencies)
+jar cfe blui.jar blui.app.BluiCli -C bin .
+
+# Run anywhere on JDK 24
+java -jar blui.jar
+```
+
+#### Option C: Manual Compile & Launch
+```powershell
 javac -d bin src/blui/core/*.java src/blui/governor/*.java src/blui/loom/*.java src/blui/replay/*.java src/blui/app/*.java src/blui/tools/*.java src/blui/llm/*.java
 java -cp bin blui.app.BluiCli
 ```
@@ -102,18 +110,45 @@ java -cp bin blui.app.BluiCli
 ### 2. Available Interactive Commands
 ```text
 blui > bench               # Spawns 500 concurrent virtual threads (finishes in ~23ms)
-blui > run <goal>          # Executes autonomous agent loop with Governor safety checks
-blui > traces              # Lists all past flight recorder ledgers stored on disk
-blui > replay <trace-id>   # Replays exact step-by-step decisions and tool outputs
+blui > run <goal>          # Executes live autonomous agent with Governor safety checks
+blui > traces              # Lists all past flight recorder ledgers stored on disk (.blui/traces/)
+blui > replay <trace-id>   # Replays exact step-by-step decisions, token usage, and tool outputs
 blui > status              # Displays live JVM diagnostics (CPU cores, heap, OS/arch)
 blui > exit                # Terminates the shell session
 ```
 
 ---
 
-## 🧩 Codebase Audit (2,023 LOC & Zero Dependencies)
+## 🔑 LLM Provider & API Key Configuration
 
-Every component is written from scratch using pure Java 24 primitives:
+Blui supports both **Cloud LLMs** (Google Gemini 2.5 Flash via Google AI Studio) and **100% Offline Local LLMs** (Ollama @ `localhost:11434`).
+
+Blui resolves your credentials in the following automatic hierarchy:
+
+1. **In-Memory Session**: If pasted in the active CLI session.
+2. **OS Environment Variable**: `GEMINI_API_KEY` (e.g. `$env:GEMINI_API_KEY="AIzaSy..."` or `export GEMINI_API_KEY="..."`).
+3. **Local `.env` File**: A git-ignored `.env` file in the workspace root:
+   ```env
+   GEMINI_API_KEY=AIzaSy...
+   ```
+4. **Interactive Prompt**: If no key is found when running an agent, Blui prompts you right in the terminal and asks if you would like to save it to `.env` for future sessions.
+5. **Local Ollama Fallback**: If no key is provided, Blui automatically detects if local Ollama is running and uses your local model (`llama3`, `mistral`, etc.).
+
+---
+
+## 💾 Black-Box Flight Recorder (`.blui/traces/`)
+
+Every agent run is automatically recorded as an immutable JSON ledger in `.blui/traces/`:
+* Complete step-by-step state transitions (`Initialized` → `Thinking` → `ExecutingTools` → `Completed`)
+* Exact tool inputs, terminal outputs, and execution duration (ms)
+* Real hardware token consumption and financial dollar cost
+* Inspect past runs anytime using `blui traces` and `blui replay <trace-id>`
+
+---
+
+## 🧩 Codebase Audit (2,109 LOC & Zero Dependencies)
+
+Every component is written from scratch using pure Java 24 standard library primitives:
 
 | Package | Source Files | Lines of Code | Core Responsibility |
 | :--- | :--- | :--- | :--- |
@@ -123,8 +158,8 @@ Every component is written from scratch using pure Java 24 primitives:
 | **`blui.tools`** | `ShellTool.java`<br>`FileTool.java`<br>`HttpTool.java` | **291 LOC** | **Pillar 1 (Hands)**: OS process execution with timeout kills, sandboxed workspace filesystem I/O, web fetcher. |
 | **`blui.llm`** | `MinimalJson.java`<br>`LlmProvider.java`<br>`GeminiClient.java`<br>`OllamaClient.java` | **400 LOC** | **Pillar 2 (Brain)**: Zero-dep JSON parser, Google Gemini API free tier (`gemini-2.5-flash`), local offline Ollama (`localhost:11434`), real token metering. |
 | **`blui.replay`** | `StepTrace.java`<br>`AgentTrace.java`<br>`ReplayEngine.java`<br>`TraceStore.java`<br>`TraceStoreTest.java` | **339 LOC** | **Pillar 3 (Memory)**: Black-box flight recorder to `.blui/traces/*.json`, step-by-step post-mortem inspection, state restoration. |
-| **`blui.app`** | `TerminalArt.java`<br>`BluiCli.java` | **453 LOC** | Sub-pixel ANSI 24-bit Truecolor RGBA mascot renderer, hardware status cards, and interactive REPL shell. |
-| **Total** | **24 Java Files (22 src + 2 test)** | **2,023 LOC** | **100% Pure JDK Standard Library** |
+| **`blui.app`** | `TerminalArt.java`<br>`BluiCli.java` | **539 LOC** | Sub-pixel ANSI 24-bit Truecolor RGBA mascot renderer, hardware status cards, `.env` auth resolver, and interactive REPL shell. |
+| **Total** | **24 Java Files (22 src + 2 test)** | **2,109 LOC** | **100% Pure JDK Standard Library** |
 
 ---
 

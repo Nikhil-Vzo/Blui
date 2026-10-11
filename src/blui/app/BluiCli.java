@@ -7,15 +7,23 @@ import blui.core.ToolResults;
 import blui.governor.Budget;
 import blui.governor.CycleDetector;
 import blui.governor.Governor;
+import blui.llm.GeminiClient;
+import blui.llm.LlmProvider;
+import blui.llm.OllamaClient;
 import blui.loom.LoomRunner;
 import blui.loom.ToolExecution;
 import blui.replay.AgentTrace;
 import blui.replay.StepTrace;
 import blui.replay.TraceStore;
+import blui.tools.FileTool;
+import blui.tools.HttpTool;
+import blui.tools.ShellTool;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -28,6 +36,7 @@ import java.util.Scanner;
 public class BluiCli {
 
     private static final TraceStore traceStore = new TraceStore();
+    private static String sessionApiKey = null;
 
     private static final String RESET = "\033[0m";
     private static final String BOLD = "\033[1m";
@@ -209,7 +218,7 @@ public class BluiCli {
                 replayTrace(id);
             } else if (input.startsWith("run ") || input.startsWith("blui run ")) {
                 String task = input.replaceFirst("^(blui run|run)\\s+", "");
-                runMockAgent(task);
+                executeAgent(task, scanner);
             } else if (!input.isEmpty()) {
                 writelnUtf8(GRAY + "Unknown command: '" + input + "'. Type 'help' for available commands." + RESET);
             }
@@ -274,6 +283,212 @@ public class BluiCli {
 
         writelnUtf8(GREEN + BOLD + "✓ Completed " + results.size() + " Virtual Threads in " + duration + "ms!" + RESET);
         writelnUtf8(GRAY + "  Average Join SLA: <0.25ms per task | Memory overhead: ~0.5MB\n" + RESET);
+    }
+
+    private static String resolveGeminiApiKey(Scanner scanner) {
+        if (sessionApiKey != null && !sessionApiKey.isBlank()) {
+            return sessionApiKey;
+        }
+
+        // 1. Check OS environment variable
+        String envVal = System.getenv("GEMINI_API_KEY");
+        if (envVal != null && !envVal.isBlank()) {
+            sessionApiKey = envVal.trim();
+            return sessionApiKey;
+        }
+
+        // 2. Check local .env file
+        Path envPath = Path.of(".env");
+        if (Files.exists(envPath)) {
+            try {
+                for (String line : Files.readAllLines(envPath)) {
+                    String trimmed = line.trim();
+                    if (trimmed.startsWith("#") || trimmed.isBlank()) continue;
+                    if (trimmed.startsWith("GEMINI_API_KEY=")) {
+                        String val = trimmed.substring("GEMINI_API_KEY=".length()).trim();
+                        if ((val.startsWith("\"") && val.endsWith("\"")) || (val.startsWith("'") && val.endsWith("'"))) {
+                            val = val.substring(1, val.length() - 1);
+                        }
+                        if (!val.isBlank()) {
+                            sessionApiKey = val;
+                            return sessionApiKey;
+                        }
+                    }
+                }
+            } catch (IOException ignored) {}
+        }
+
+        // 3. Prompt user interactively in the terminal
+        writelnUtf8(CYAN + "\n[AUTH] GEMINI_API_KEY not found in OS environment or .env file." + RESET);
+        writeUtf8(BOLD + "       Paste Gemini API key (or press Enter for local Ollama/simulation): " + RESET);
+        if (scanner.hasNextLine()) {
+            String input = scanner.nextLine().trim();
+            if (!input.isBlank()) {
+                sessionApiKey = input;
+                writeUtf8(GRAY + "       Save key to .env for future sessions? (y/N): " + RESET);
+                if (scanner.hasNextLine()) {
+                    String choice = scanner.nextLine().trim();
+                    if ("y".equalsIgnoreCase(choice) || "yes".equalsIgnoreCase(choice)) {
+                        try {
+                            Files.writeString(envPath, "GEMINI_API_KEY=" + sessionApiKey + System.lineSeparator(),
+                                    StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+                            writelnUtf8(GREEN + "       ✓ Saved key to .env (git-ignored)" + RESET);
+                        } catch (IOException e) {
+                            writelnUtf8(GRAY + "       (Could not write to .env: " + e.getMessage() + ")" + RESET);
+                        }
+                    }
+                }
+                return sessionApiKey;
+            }
+        }
+
+        return null;
+    }
+
+    private static void executeAgent(String goal, Scanner scanner) {
+        String apiKey = resolveGeminiApiKey(scanner);
+
+        LlmProvider provider = null;
+        if (apiKey != null && !apiKey.isBlank()) {
+            provider = new GeminiClient(apiKey);
+            writelnUtf8(CYAN + "\n[BRAIN] Provider: Google Gemini (" + provider.modelName() + " via Google AI Studio)" + RESET);
+        } else {
+            OllamaClient ollama = new OllamaClient();
+            if (ollama.isAvailable()) {
+                provider = ollama;
+                writelnUtf8(CYAN + "\n[BRAIN] Provider: Local Ollama (" + provider.modelName() + " @ localhost:11434)" + RESET);
+            } else {
+                writelnUtf8(GRAY + "\n[BRAIN] Note: No Gemini key or local Ollama daemon found. Running local simulation." + RESET);
+                runMockAgent(goal);
+                return;
+            }
+        }
+
+        runLiveAgent(goal, provider);
+    }
+
+    private static void runLiveAgent(String goal, LlmProvider provider) {
+        writelnUtf8(CYAN + "[ENGINE] Initializing Agent for goal: '" + goal + "'..." + RESET);
+
+        Governor governor = new Governor(new Budget(50000, 1.00, 0.000003), new CycleDetector(3));
+        LoomRunner loomRunner = new LoomRunner();
+
+        ShellTool shellTool = new ShellTool();
+        FileTool fileTool = new FileTool();
+        HttpTool httpTool = new HttpTool();
+
+        AgentTrace trace = new AgentTrace();
+        int step = 0;
+        trace.append(StepTrace.of(step++, new AgentState.Initialized(goal), 0));
+
+        List<LlmProvider.Message> conversation = new ArrayList<>();
+        String systemInstruction = """
+            You are Blui, an autonomous AI agent runtime built in pure Java 24.
+            Available physical system tools:
+            1. ShellTool: Runs system terminal commands. Format:
+               TOOL: ShellTool
+               INPUT: <command>
+            2. FileTool: Filesystem operations jailed to workspace. Format:
+               TOOL: FileTool
+               INPUT: read <path> | write <path> <content> | append <path> <content> | list <path>
+            3. HttpTool: HTTP GET/POST web fetcher. Format:
+               TOOL: HttpTool
+               INPUT: get <url> | post <url> <body>
+
+            When you need to execute an action, output TOOL: and INPUT:.
+            When you have achieved the goal or answered the question, do NOT output TOOL: lines. Provide the final response.
+            """;
+
+        conversation.add(new LlmProvider.Message("system", systemInstruction));
+        conversation.add(new LlmProvider.Message("user", "Goal: " + goal));
+
+        AgentState currentState = new AgentState.Initialized(goal);
+
+        try {
+            int maxSteps = 10;
+            while (step <= maxSteps) {
+                // 1. Governor safety check
+                governor.inspectStep(currentState);
+
+                // 2. Planning phase
+                currentState = new AgentState.Thinking(goal, step);
+                writelnUtf8(DIM + "  Step " + step + " [Thinking] Querying " + provider.modelName() + "..." + RESET);
+
+                LlmProvider.LlmResponse response = provider.generate(conversation);
+                governor.budget().recordUsage(response.totalTokens());
+                trace.append(StepTrace.of(step++, currentState, response.totalTokens()));
+
+                if (response.hasToolCall()) {
+                    String toolName = response.toolName();
+                    String toolInput = response.toolInput();
+
+                    Tool targetTool = matchTool(toolName, shellTool, fileTool, httpTool);
+                    governor.recordAndVerifyToolCall(targetTool.name(), toolInput);
+
+                    currentState = new AgentState.ExecutingTools(List.of(targetTool.name()), step);
+                    writelnUtf8(CYAN + "  Step " + step + " [ExecutingTools] " + targetTool.name() + " -> " + toolInput + RESET);
+
+                    List<ToolResults> results = loomRunner.runConcurrent(
+                            List.of(new ToolExecution(targetTool, toolInput)),
+                            Duration.ofSeconds(15)
+                    );
+                    ToolResults res = results.get(0);
+                    trace.append(StepTrace.of(step++, currentState, 0));
+
+                    writelnUtf8(DIM + "    └─ Result (" + res.durationMs() + "ms, success=" + res.isSuccess() + "): " + summarize(res.output()) + RESET);
+
+                    conversation.add(new LlmProvider.Message("assistant", response.content()));
+                    conversation.add(new LlmProvider.Message("user", "OBSERVATION (" + targetTool.name() + "):\n" + res.output()));
+                } else {
+                    // Final answer
+                    currentState = new AgentState.Completed(response.content(), step);
+                    trace.append(StepTrace.of(step, currentState, 0));
+                    writelnUtf8(GREEN + BOLD + "\n✓ Goal Completed!" + RESET);
+                    writelnUtf8(WHITE + response.content() + RESET + "\n");
+                    break;
+                }
+            }
+
+            if (step > maxSteps) {
+                currentState = new AgentState.Failed("Max steps exceeded (" + maxSteps + ")", step);
+                trace.append(StepTrace.of(step, currentState, 0));
+                writelnUtf8(RED + "\n✗ Execution halted: Max steps limit exceeded." + RESET);
+            }
+
+        } catch (Governor.BudgetExceededException | Governor.LoopDetectedException ge) {
+            currentState = new AgentState.Failed("Governor circuit breaker: " + ge.getMessage(), step);
+            trace.append(StepTrace.of(step, currentState, 0));
+            writelnUtf8(RED + "\n[GOVERNOR HALT] " + ge.getMessage() + RESET);
+        } catch (Exception e) {
+            currentState = new AgentState.Failed("Execution error: " + e.getMessage(), step);
+            trace.append(StepTrace.of(step, currentState, 0));
+            writelnUtf8(RED + "\n[ERROR] " + e.getMessage() + RESET);
+        }
+
+        // Auto-save flight trace to disk
+        try {
+            String traceId = "trace_" + System.currentTimeMillis();
+            Path savedPath = traceStore.save(traceId, goal, trace);
+            writelnUtf8(GRAY + "  [FLIGHT RECORDER] Persisted to " + savedPath.toString() + RESET);
+        } catch (Exception e) {
+            writelnUtf8(GRAY + "  [FLIGHT RECORDER] Note: Trace could not be written to disk: " + e.getMessage() + RESET);
+        }
+
+        writelnUtf8("");
+    }
+
+    private static Tool matchTool(String name, Tool shell, Tool file, Tool http) {
+        if (name == null) return shell;
+        if (name.toLowerCase().contains("file")) return file;
+        if (name.toLowerCase().contains("http")) return http;
+        return shell;
+    }
+
+    private static String summarize(String s) {
+        if (s == null) return "(empty)";
+        String line = s.lines().findFirst().orElse("").trim();
+        if (line.length() > 65) return line.substring(0, 62) + "...";
+        return line.isEmpty() ? "(empty)" : line;
     }
 
     private static void runMockAgent(String goal) {
