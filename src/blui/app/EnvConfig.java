@@ -11,7 +11,7 @@ import java.util.Scanner;
 import java.util.function.Consumer;
 
 /**
- * Hermes-style interactive environment & secret configuration manager.
+ * Interactive environment & secret configuration manager with provider isolation.
  * Stores local API keys and endpoints in a git-ignored .env file.
  */
 public final class EnvConfig {
@@ -20,8 +20,19 @@ public final class EnvConfig {
 
     public record VariableDef(String key, String description, boolean isSecret, String defaultValue) {}
 
+    public static final List<VariableDef> GEMINI_VARS = List.of(
+            new VariableDef("GEMINI_API_KEY", "Google Gemini API Key (AI Studio)", true, ""),
+            new VariableDef("GEMINI_MODEL", "Gemini Model (Default: gemini-3.5-flash)", false, "gemini-3.5-flash")
+    );
+
+    public static final List<VariableDef> OLLAMA_VARS = List.of(
+            new VariableDef("OLLAMA_HOST", "Local Ollama Host Endpoint", false, "http://localhost:11434"),
+            new VariableDef("OLLAMA_MODEL", "Local Ollama Model Name", false, "llama3.2")
+    );
+
     public static final List<VariableDef> MANAGED_VARS = List.of(
             new VariableDef("GEMINI_API_KEY", "Google Gemini API Key (AI Studio)", true, ""),
+            new VariableDef("GEMINI_MODEL", "Gemini Model (Default: gemini-3.5-flash)", false, "gemini-3.5-flash"),
             new VariableDef("OLLAMA_HOST", "Local Ollama Host Endpoint", false, "http://localhost:11434"),
             new VariableDef("OLLAMA_MODEL", "Local Ollama Model Name", false, "llama3.2")
     );
@@ -33,7 +44,9 @@ public final class EnvConfig {
     private static final String GREEN = "\033[38;2;52;211;153m";
     private static final String RED = "\033[38;2;248;113;113m";
     private static final String YELLOW = "\033[38;2;251;191;36m";
+    private static final String BLUE = "\033[38;2;96;165;250m";
     private static final String GRAY = "\033[38;2;148;163;184m";
+    private static final String WHITE = "\033[38;2;248;250;252m";
 
     private EnvConfig() {}
 
@@ -154,22 +167,57 @@ public final class EnvConfig {
         return null;
     }
 
-    /**
-     * Runs the Hermes-style interactive terminal prompt for environment variables.
-     */
     public static Map<String, String> runInteractiveWizard(Scanner scanner, Consumer<String> out, Consumer<String> outInline) {
-        out.accept("\n" + CYAN + "┌─ ENVIRONMENT CONFIGURATION (Hermes-Style) ─────────────────────────┐" + RESET);
-        out.accept(CYAN + "│ " + GRAY + "Configure API keys & provider endpoints. Stored locally in .env.  " + CYAN + "│" + RESET);
-        out.accept(CYAN + "│ " + YELLOW + "• Press Enter or 'k' to KEEP current value                          " + CYAN + "│" + RESET);
-        out.accept(CYAN + "│ " + GREEN + "• Type a new value to CHANGE it                                     " + CYAN + "│" + RESET);
-        out.accept(CYAN + "│ " + RED + "• Type 'clear' to REMOVE it                                         " + CYAN + "│" + RESET);
-        out.accept(CYAN + "└────────────────────────────────────────────────────────────────────┘\n" + RESET);
+        return runInteractiveWizard(scanner, out, outInline, null);
+    }
+
+    /**
+     * Runs provider-aware interactive terminal prompt for environment variables.
+     */
+    public static Map<String, String> runInteractiveWizard(Scanner scanner, Consumer<String> out, Consumer<String> outInline, String targetProvider) {
+        List<VariableDef> targetVars = MANAGED_VARS;
+        String providerTitle = "All Providers";
+
+        if (targetProvider == null || targetProvider.isBlank()) {
+            out.accept("\n" + CYAN + "┌─ ENVIRONMENT SETUP ────────────────────────────────────────────────┐" + RESET);
+            out.accept(CYAN + "│ " + WHITE + "Choose provider to configure:                                      " + CYAN + "│" + RESET);
+            out.accept(CYAN + "│   " + GREEN + "[1] Google Gemini" + GRAY + " (API Key, Model)                               " + CYAN + "│" + RESET);
+            out.accept(CYAN + "│   " + BLUE + "[2] Local Ollama" + GRAY + "  (Host Endpoint, Model)                         " + CYAN + "│" + RESET);
+            out.accept(CYAN + "│   " + YELLOW + "[3] All Settings" + GRAY + "  (Configure everything)                         " + CYAN + "│" + RESET);
+            out.accept(CYAN + "└────────────────────────────────────────────────────────────────────┘" + RESET);
+            outInline.accept(BOLD + "Enter choice [1-3] (Default: 1 for Gemini): " + RESET);
+
+            String choice = "";
+            if (scanner.hasNextLine()) {
+                choice = scanner.nextLine().trim();
+            }
+
+            if ("2".equals(choice) || "ollama".equalsIgnoreCase(choice)) {
+                targetVars = OLLAMA_VARS;
+                providerTitle = "Local Ollama";
+            } else if ("3".equals(choice) || "all".equalsIgnoreCase(choice)) {
+                targetVars = MANAGED_VARS;
+                providerTitle = "All Settings";
+            } else {
+                targetVars = GEMINI_VARS;
+                providerTitle = "Google Gemini";
+            }
+        } else if ("gemini".equalsIgnoreCase(targetProvider)) {
+            targetVars = GEMINI_VARS;
+            providerTitle = "Google Gemini";
+        } else if ("ollama".equalsIgnoreCase(targetProvider)) {
+            targetVars = OLLAMA_VARS;
+            providerTitle = "Local Ollama";
+        }
+
+        out.accept("\n" + CYAN + "─ Configuring " + providerTitle + " ────────────────────────────────────────" + RESET);
+        out.accept(GRAY + "Press Enter or 'k' to keep existing value | Type 'clear' to remove" + RESET + "\n");
 
         Map<String, String> currentEnv = load(DEFAULT_ENV_PATH);
         Map<String, String> updated = new LinkedHashMap<>(currentEnv);
 
         int index = 1;
-        for (VariableDef def : MANAGED_VARS) {
+        for (VariableDef def : targetVars) {
             String existing = updated.get(def.key());
             if ((existing == null || existing.isBlank()) && System.getenv(def.key()) != null) {
                 existing = System.getenv(def.key());
@@ -177,7 +225,7 @@ public final class EnvConfig {
 
             String maskedCurrent = mask(def.key(), existing);
 
-            out.accept(BOLD + "[" + index + "/" + MANAGED_VARS.size() + "] " + CYAN + def.key() + RESET +
+            out.accept(BOLD + "[" + index + "/" + targetVars.size() + "] " + CYAN + def.key() + RESET +
                        GRAY + " (" + def.description() + ")" + RESET);
             out.accept("      Current: " + (existing != null && !existing.isBlank() ? GREEN + maskedCurrent : GRAY + maskedCurrent) + RESET);
 

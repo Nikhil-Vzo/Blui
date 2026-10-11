@@ -15,7 +15,8 @@ import java.util.regex.Pattern;
  */
 public final class GeminiClient implements LlmProvider {
 
-    private static final String DEFAULT_MODEL = "gemini-2.5-flash";
+    private static final String DEFAULT_MODEL = "gemini-3.5-flash";
+    private static final String FALLBACK_MODEL = "gemini-3.8-flash";
     private static final String BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models/";
 
     private final String apiKey;
@@ -24,20 +25,25 @@ public final class GeminiClient implements LlmProvider {
     private final Duration timeout;
 
     public GeminiClient() {
-        this(System.getenv("GEMINI_API_KEY"), DEFAULT_MODEL, Duration.ofSeconds(30));
+        this(System.getenv("GEMINI_API_KEY"), resolveDefaultModel(), Duration.ofSeconds(30));
     }
 
     public GeminiClient(String apiKey) {
-        this(apiKey, DEFAULT_MODEL, Duration.ofSeconds(30));
+        this(apiKey, resolveDefaultModel(), Duration.ofSeconds(30));
     }
 
     public GeminiClient(String apiKey, String model, Duration timeout) {
         this.apiKey = apiKey;
-        this.model = model != null && !model.isBlank() ? model : DEFAULT_MODEL;
+        this.model = model != null && !model.isBlank() ? model : resolveDefaultModel();
         this.timeout = timeout != null ? timeout : Duration.ofSeconds(30);
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(this.timeout)
                 .build();
+    }
+
+    private static String resolveDefaultModel() {
+        String env = System.getenv("GEMINI_MODEL");
+        return (env != null && !env.isBlank()) ? env.trim() : DEFAULT_MODEL;
     }
 
     @Override
@@ -62,6 +68,21 @@ public final class GeminiClient implements LlmProvider {
                 .build();
 
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+        // Auto-fallback if the primary model is deprecated or overloaded
+        if (response.statusCode() != 200 && !model.equals(FALLBACK_MODEL)) {
+            String fallbackEndpoint = BASE_URL + FALLBACK_MODEL + ":generateContent?key=" + apiKey;
+            HttpRequest fallbackRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(fallbackEndpoint))
+                    .timeout(timeout)
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(requestJson))
+                    .build();
+            HttpResponse<String> fallbackResponse = httpClient.send(fallbackRequest, HttpResponse.BodyHandlers.ofString());
+            if (fallbackResponse.statusCode() == 200) {
+                response = fallbackResponse;
+            }
+        }
 
         if (response.statusCode() != 200) {
             String errorMsg = MinimalJson.extractString(response.body(), "message");

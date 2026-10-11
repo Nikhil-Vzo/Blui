@@ -221,11 +221,17 @@ public class BluiCli {
             } else if (input.equalsIgnoreCase("env show") || input.equalsIgnoreCase("blui env show")
                     || input.equalsIgnoreCase("env list") || input.equalsIgnoreCase("show env")) {
                 EnvConfig.printCurrent(BluiCli::writelnUtf8);
+            } else if (input.toLowerCase().matches("^(blui\\s+)?(env|set\\s+env|config)\\s+(gemini|ollama|all)$")) {
+                String target = input.replaceFirst("^(blui\\s+)?(env|set\\s+env|config)\\s+", "").trim().toLowerCase();
+                Map<String, String> updated = EnvConfig.runInteractiveWizard(scanner, BluiCli::writelnUtf8, BluiCli::writeUtf8, target);
+                if (updated.containsKey("GEMINI_API_KEY")) {
+                    sessionApiKey = updated.get("GEMINI_API_KEY");
+                }
             } else if (input.equalsIgnoreCase("env") || input.equalsIgnoreCase("blui env")
                     || input.equalsIgnoreCase("set env") || input.equalsIgnoreCase("blui set env")
                     || input.equalsIgnoreCase("config") || input.equalsIgnoreCase("blui config")
                     || input.equalsIgnoreCase("setup")) {
-                Map<String, String> updated = EnvConfig.runInteractiveWizard(scanner, BluiCli::writelnUtf8, BluiCli::writeUtf8);
+                Map<String, String> updated = EnvConfig.runInteractiveWizard(scanner, BluiCli::writelnUtf8, BluiCli::writeUtf8, null);
                 if (updated.containsKey("GEMINI_API_KEY")) {
                     sessionApiKey = updated.get("GEMINI_API_KEY");
                 }
@@ -267,7 +273,7 @@ public class BluiCli {
         writelnUtf8(BOLD + "\nAvailable Commands:" + RESET);
         writelnUtf8("  " + CYAN + "bench" + RESET + "                 - Run 500 concurrent virtual thread tasks");
         writelnUtf8("  " + CYAN + "run <goal>" + RESET + "            - Execute an agent loop with Governor and Loom");
-        writelnUtf8("  " + CYAN + "env" + RESET + "                   - Interactive environment wizard (Hermes-style 'k' to keep)");
+        writelnUtf8("  " + CYAN + "env [gemini|ollama]" + RESET + "   - Configure provider environment (Hermes-style 'k' to keep)");
         writelnUtf8("  " + CYAN + "set env <KEY>=<VAL>" + RESET + "   - Set specific variable inline in .env");
         writelnUtf8("  " + CYAN + "env show" + RESET + "              - Display current .env configuration");
         writelnUtf8("  " + CYAN + "traces" + RESET + "                - List all saved flight recorder traces on disk");
@@ -337,13 +343,13 @@ public class BluiCli {
             return sessionApiKey;
         }
 
-        // Prompt user interactively
+        // Prompt user interactively specifically for Gemini
         writelnUtf8(CYAN + "\n[AUTH] GEMINI_API_KEY not found in OS environment or .env file." + RESET);
-        writeUtf8(BOLD + "       Run environment setup now? [Y/n] (or press Enter to configure): " + RESET);
+        writeUtf8(BOLD + "       Configure Gemini API key now? [Y/n] (or press Enter to configure): " + RESET);
         if (scanner.hasNextLine()) {
             String choice = scanner.nextLine().trim();
             if (choice.isEmpty() || "y".equalsIgnoreCase(choice) || "yes".equalsIgnoreCase(choice)) {
-                Map<String, String> updated = EnvConfig.runInteractiveWizard(scanner, BluiCli::writelnUtf8, BluiCli::writeUtf8);
+                Map<String, String> updated = EnvConfig.runInteractiveWizard(scanner, BluiCli::writelnUtf8, BluiCli::writeUtf8, "gemini");
                 if (updated.containsKey("GEMINI_API_KEY")) {
                     sessionApiKey = updated.get("GEMINI_API_KEY");
                     return sessionApiKey;
@@ -359,7 +365,8 @@ public class BluiCli {
 
         LlmProvider provider = null;
         if (apiKey != null && !apiKey.isBlank()) {
-            provider = new GeminiClient(apiKey);
+            String customModel = EnvConfig.get("GEMINI_MODEL");
+            provider = new GeminiClient(apiKey, customModel != null ? customModel : "gemini-3.5-flash", Duration.ofSeconds(30));
             writelnUtf8(CYAN + "\n[BRAIN] Provider: Google Gemini (" + provider.modelName() + " via Google AI Studio)" + RESET);
         } else {
             String ollamaHost = EnvConfig.get("OLLAMA_HOST");
