@@ -11,9 +11,11 @@ import blui.loom.LoomRunner;
 import blui.loom.ToolExecution;
 import blui.replay.AgentTrace;
 import blui.replay.StepTrace;
+import blui.replay.TraceStore;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -25,11 +27,14 @@ import java.util.Scanner;
  */
 public class BluiCli {
 
+    private static final TraceStore traceStore = new TraceStore();
+
     private static final String RESET = "\033[0m";
     private static final String BOLD = "\033[1m";
     private static final String DIM = "\033[2m";
     private static final String CYAN = "\033[38;2;80;190;250m";
     private static final String GREEN = "\033[38;2;52;211;153m";
+    private static final String RED = "\033[38;2;248;113;113m";
     private static final String BLUE = "\033[38;2;96;165;250m";
     private static final String PURPLE = "\033[38;2;192;132;252m";
     private static final String GRAY = "\033[38;2;148;163;184m";
@@ -92,6 +97,8 @@ public class BluiCli {
         lines.add(DIM + " ──────────────────────────────────────────────────" + RESET);
         lines.add(BOLD + WHITE + " COMMANDS" + RESET);
         lines.add(CYAN + " blui run " + GRAY + "<goal>          " + DIM + "# execute agent loop" + RESET);
+        lines.add(CYAN + " blui traces               " + DIM + "# list saved flight ledgers" + RESET);
+        lines.add(CYAN + " blui replay " + GRAY + "<id>         " + DIM + "# replay past flight trace" + RESET);
         lines.add(CYAN + " blui bench                " + DIM + "# spawn 500 virtual threads" + RESET);
         lines.add(CYAN + " blui status               " + DIM + "# reprint runtime diagnostics" + RESET);
         lines.add(CYAN + " blui exit                 " + DIM + "# terminate shell session" + RESET);
@@ -195,6 +202,11 @@ public class BluiCli {
                 printHelp();
             } else if (input.equalsIgnoreCase("bench") || input.equalsIgnoreCase("blui bench")) {
                 runBenchmark();
+            } else if (input.equalsIgnoreCase("traces") || input.equalsIgnoreCase("blui traces")) {
+                listTraces();
+            } else if (input.startsWith("replay ") || input.startsWith("blui replay ")) {
+                String id = input.replaceFirst("^(blui replay|replay)\\s+", "").trim();
+                replayTrace(id);
             } else if (input.startsWith("run ") || input.startsWith("blui run ")) {
                 String task = input.replaceFirst("^(blui run|run)\\s+", "");
                 runMockAgent(task);
@@ -208,8 +220,41 @@ public class BluiCli {
         writelnUtf8(BOLD + "\nAvailable Commands:" + RESET);
         writelnUtf8("  " + CYAN + "bench" + RESET + "         - Run 500 concurrent virtual thread tasks");
         writelnUtf8("  " + CYAN + "run <goal>" + RESET + "    - Execute an agent loop with Governor and Loom");
+        writelnUtf8("  " + CYAN + "traces" + RESET + "        - List all saved flight recorder traces on disk");
+        writelnUtf8("  " + CYAN + "replay <id>" + RESET + "   - Inspect and replay a past flight trace");
         writelnUtf8("  " + CYAN + "status" + RESET + "        - Reprint runtime dashboard");
         writelnUtf8("  " + CYAN + "exit" + RESET + "          - Terminate CLI session\n");
+    }
+
+    private static void listTraces() {
+        List<TraceStore.TraceSummary> list = traceStore.listTraces();
+        if (list.isEmpty()) {
+            writelnUtf8(GRAY + "\nNo saved flight traces found in .blui/traces/." + RESET);
+            return;
+        }
+
+        writelnUtf8(BOLD + "\nRecorded Flight Traces (.blui/traces/):" + RESET);
+        writelnUtf8(GRAY + padRight("TRACE ID", 26) + padRight("STEPS", 8) + padRight("STATUS", 12) + "GOAL" + RESET);
+        writelnUtf8(DIM + "─".repeat(70) + RESET);
+        for (TraceStore.TraceSummary s : list) {
+            writelnUtf8(CYAN + padRight(s.id(), 26) + RESET +
+                        padRight(String.valueOf(s.stepCount()), 8) +
+                        GREEN + padRight(s.status(), 12) + RESET +
+                        s.goal());
+        }
+        writelnUtf8("");
+    }
+
+    private static void replayTrace(String traceId) {
+        try {
+            String json = traceStore.readTraceJson(traceId);
+            writelnUtf8(CYAN + BOLD + "\n[REPLAY] Flight Ledger: " + traceId + RESET);
+            writelnUtf8(DIM + "─".repeat(50) + RESET);
+            writelnUtf8(json);
+            writelnUtf8(DIM + "─".repeat(50) + RESET + "\n");
+        } catch (Exception e) {
+            writelnUtf8(RED + "Error replaying trace: " + e.getMessage() + RESET + "\n");
+        }
     }
 
     private static void runBenchmark() {
@@ -257,6 +302,16 @@ public class BluiCli {
                 : "0 tokens (local simulation - no LLM attached)";
             writelnUtf8(DIM + "  Step " + step.stepNumber() + " [" + step.state().getClass().getSimpleName() + "] " + tokenNote + RESET);
         }
+
+        // Auto-save flight trace to disk
+        try {
+            String traceId = "trace_" + System.currentTimeMillis();
+            Path savedPath = traceStore.save(traceId, goal, trace);
+            writelnUtf8(GRAY + "  [FLIGHT RECORDER] Persisted to " + savedPath.toString() + RESET);
+        } catch (Exception e) {
+            writelnUtf8(GRAY + "  [FLIGHT RECORDER] Note: Trace could not be written to disk: " + e.getMessage() + RESET);
+        }
+
         writelnUtf8("");
     }
 

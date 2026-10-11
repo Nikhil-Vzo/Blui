@@ -80,3 +80,4 @@ logs/
 *.bak
 .env
 .env.local
+.blui/
