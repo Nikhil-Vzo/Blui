@@ -63,7 +63,7 @@ Modern multi-agent frameworks are plagued by leaky abstractions, unobservable ex
          ┌─────────────────────┐┌─────────────────────┐┌─────────────────────┐
          │      blui.llm       ││    blui.governor    ││      blui.loom      │
          │ (The Agent's Brain) ││ Token budgeting,    ││ Project Loom        │
-         │ Gemini 3.8 & Ollama ││ cost limits, loop   ││ virtual-thread      │
+         │ Gemini 3.5 & Ollama ││ cost limits, loop   ││ virtual-thread      │
          │ & MinimalJson parser││ circuit-breaker     ││ concurrent runner   │
          └─────────────────────┘└─────────────────────┘└──────────┬──────────┘
                                                                   │
@@ -172,7 +172,7 @@ At the conclusion of every agent execution, Blui outputs an authentic, hardware-
 ┌─ TELEMETRY ──────────────────────────────────────────────────────────┐
 │ Tokens:   454 in (prompt) │ 49 out (completion) │ 503 total          │
 │ Latency:  9.82s (9823ms) │ Steps: 4 │ Cost: $0.00151                │
-│ Model:    gemini-3.8-flash │ Governor: Nominal (Budget OK)           │
+│ Model:    gemini-3.5-flash │ Governor: Nominal (Budget OK)           │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 

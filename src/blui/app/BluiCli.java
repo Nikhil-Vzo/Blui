@@ -417,7 +417,7 @@ public class BluiCli {
         LlmProvider provider = null;
         if (apiKey != null && !apiKey.isBlank()) {
             String customModel = EnvConfig.get("GEMINI_MODEL");
-            provider = new GeminiClient(apiKey, customModel != null ? customModel : "gemini-3.5-flash", Duration.ofMinutes(2));
+            provider = new GeminiClient(apiKey, customModel != null ? customModel : GeminiClient.DEFAULT_MODEL, Duration.ofMinutes(2));
             writelnUtf8(CYAN + "\n[BRAIN] Provider: Google Gemini (" + provider.modelName() + " via Google AI Studio)" + RESET);
         } else {
             String ollamaHost = EnvConfig.get("OLLAMA_HOST");
@@ -737,22 +737,22 @@ public class BluiCli {
         String cleaned = text.trim();
 
         // 1. Strip XML-style thinking tags: <think>...</think>, <thought>...</thought>, etc.
-        cleaned = cleaned.replaceAll("(?is)<(think|thought|scratchpad)>.*?</\\1>", "").trim();
-        cleaned = cleaned.replaceAll("(?is)^<(think|thought|scratchpad)>.*?(?=(\\n\\n|\\Z))", "").trim();
+        cleaned = cleaned.replaceAll("(?is)<(think|thought|thinking|scratchpad)>.*?</\\1>", "").trim();
+        cleaned = cleaned.replaceAll("(?is)^<(think|thought|thinking|scratchpad)>.*?(?=(\\n\\n|\\Z))", "").trim();
 
-        // 2. Strip markdown thought fences: ```thought ... ```
-        cleaned = cleaned.replaceAll("(?is)```(?:thought|think|scratchpad)\\s*.*?```", "").trim();
+        // 2. Strip markdown thought fences: ```thought ... ``` or ```thinking ... ```
+        cleaned = cleaned.replaceAll("(?is)```(?:thought|think|thinking|scratchpad)\\s*.*?```", "").trim();
 
         // 3. Iteratively strip leading monologue sentences or lines
         Pattern monologuePattern = Pattern.compile(
-                "(?is)^\\s*("
-                + "(?:wait\\s*[,!.]\\s*|wait\\s+let['’]?s\\s+)[^.!?\\n]*[.!?\\n]+\\s*"
-                + "|the user (?:inputted|input|entered|typed|wrote|said|is asking|asked)\\b[^.!?\\n]*[.!?\\n]+\\s*"
-                + "|let['’]?s (?:understand|see|analyze|figure out|examine|think)\\b[^.!?\\n]*[.!?\\n]+\\s*"
-                + "|let me (?:think|understand|see|analyze|figure out)\\b[^.!?\\n]*[.!?\\n]+\\s*"
-                + "|(?:thinking\\s*(?:process)?|thought\\s*(?:process)?|scratchpad|internal\\s*reasoning)\\s*:?\\s*[^.!?\\n]*[.!?\\n]+\\s*"
-                + "|this (?:looks|seems|appears) to be (?:a typo|ambiguous|an incomplete|unclear)\\b[^.!?\\n]*[.!?\\n]+\\s*"
-                + "|i (?:should|need to|must) ask (?:the user )?for (?:clarification|more info|details)\\b[^.!?\\n]*[.!?\\n]+\\s*"
+                "(?is)^\\s*(?:\\*{1,2})?("
+                + "(?:wait\\s*[,!.]\\s*|wait\\s+let['’]?s\\s+)[^.!?\\n]*[.!?\\n]+[\"'\u201D\u2019]?\\s*"
+                + "|the user (?:inputted|input|entered|typed|wrote|said|is asking|asked)\\b[^.!?\\n]*[.!?\\n]+[\"'\u201D\u2019]?\\s*"
+                + "|let['’]?s (?:understand|see|analyze|figure out|examine|think)\\b[^.!?\\n]*[.!?\\n]+[\"'\u201D\u2019]?\\s*"
+                + "|let me (?:think|understand|see|analyze|figure out)\\b[^.!?\\n]*[.!?\\n]+[\"'\u201D\u2019]?\\s*"
+                + "|(?:thinking\\s*(?:process)?|thought\\s*(?:process)?|scratchpad|internal\\s*reasoning)\\s*:?\\s*[^.!?\\n]*[.!?\\n]+[\"'\u201D\u2019]?\\s*"
+                + "|this (?:looks|seems|appears) to be (?:a typo|ambiguous|an incomplete|unclear)\\b[^.!?\\n]*[.!?\\n]+[\"'\u201D\u2019]?\\s*"
+                + "|i (?:should|need to|must) ask (?:the user )?for (?:clarification|more info|details)\\b[^.!?\\n]*[.!?\\n]+[\"'\u201D\u2019]?\\s*"
                 + ")"
         );
 
@@ -777,7 +777,9 @@ public class BluiCli {
                     || l.startsWith("the user input is")
                     || l.startsWith("the user typed")
                     || l.startsWith("scratchpad:")
+                    || l.startsWith("thinking:")
                     || l.startsWith("thinking process:")
+                    || l.startsWith("thought:")
                     || l.startsWith("thought process:")) {
                 startIndex = i + 1;
             } else {
@@ -819,7 +821,8 @@ public class BluiCli {
             return true;
         }
 
-        if (trimmed.endsWith("?")) {
+        String withoutQuotes = trimmed.replaceAll("[\"'\u201D\u2019]+$", "");
+        if (withoutQuotes.endsWith("?")) {
             if (lower.contains("you") || lower.contains("your") || lower.contains("rephrase")
                     || lower.contains("elaborate") || lower.contains("mean") || lower.contains("details")) {
                 return true;
