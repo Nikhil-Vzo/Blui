@@ -40,13 +40,22 @@ public class EnvConfigTest {
     }
 
     private static void testDirectPastedApiKeyAtMenuPrompt() {
-        java.util.Scanner scanner = new java.util.Scanner("sk-or-v1-abc123test\n");
-        StringBuilder outBuf = new StringBuilder();
-        Map<String, String> result = EnvConfig.runInteractiveWizard(scanner, s -> outBuf.append(s).append("\n"), s -> outBuf.append(s), null);
+        Map<String, String> backup = EnvConfig.load(EnvConfig.DEFAULT_ENV_PATH);
+        try {
+            java.util.Scanner scanner = new java.util.Scanner("sk-or-v1-abc123test\n");
+            StringBuilder outBuf = new StringBuilder();
+            Map<String, String> result = EnvConfig.runInteractiveWizard(scanner, s -> outBuf.append(s).append("\n"), s -> outBuf.append(s), null);
 
-        assertCondition("sk-or-v1-abc123test".equals(result.get("OPENROUTER_API_KEY")),
-                "Must save directly pasted OpenRouter API key from menu prompt");
-        System.out.println("  ✓ testDirectPastedApiKeyAtMenuPrompt passed");
+            assertCondition("sk-or-v1-abc123test".equals(result.get("OPENROUTER_API_KEY")),
+                    "Must save directly pasted OpenRouter API key from menu prompt");
+            System.out.println("  ✓ testDirectPastedApiKeyAtMenuPrompt passed");
+        } finally {
+            if (!backup.isEmpty()) {
+                try {
+                    EnvConfig.save(EnvConfig.DEFAULT_ENV_PATH, backup);
+                } catch (IOException ignored) {}
+            }
+        }
     }
 
     private static void testKeepChoice() {
