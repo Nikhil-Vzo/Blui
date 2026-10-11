@@ -369,6 +369,7 @@ public class BluiCli {
     static String cleanGoal(String goal) {
         if (goal == null) return "";
         String cleaned = goal.trim();
+        cleaned = cleaned.replaceFirst("(?i)^(/goal|--goal|-goal)\\s+", "").trim();
         while (true) {
             boolean modified = false;
             if (cleaned.startsWith("<") && cleaned.endsWith(">") && cleaned.length() >= 2) {
@@ -445,20 +446,21 @@ public class BluiCli {
             writeUtf8(BOLD + "       Configure provider now? [1=OpenRouter, 2=Gemini, n=Skip]: " + RESET);
             if (scanner.hasNextLine()) {
                 String choice = scanner.nextLine().trim();
-                if (choice.startsWith("sk-or-") || choice.startsWith("sk-")) {
+                String cleanChoice = EnvConfig.cleanSecret(choice);
+                if (cleanChoice.startsWith("sk-or-") || cleanChoice.startsWith("sk-")) {
                     try {
-                        EnvConfig.saveVar(EnvConfig.DEFAULT_ENV_PATH, "OPENROUTER_API_KEY", choice);
-                        sessionOpenRouterKey = choice;
-                        writelnUtf8(GREEN + "✓ Detected OpenRouter API key (" + EnvConfig.mask("OPENROUTER_API_KEY", choice) + ") — saved to .env!\n" + RESET);
+                        EnvConfig.saveVar(EnvConfig.DEFAULT_ENV_PATH, "OPENROUTER_API_KEY", cleanChoice);
+                        sessionOpenRouterKey = cleanChoice;
+                        writelnUtf8(GREEN + "✓ Detected OpenRouter API key (" + EnvConfig.mask("OPENROUTER_API_KEY", cleanChoice) + ") — saved to .env!\n" + RESET);
                         return resolveProvider(null);
                     } catch (IOException e) {
                         writelnUtf8(RED + "✗ Error saving .env: " + e.getMessage() + "\n" + RESET);
                     }
-                } else if (choice.startsWith("AIzaSy")) {
+                } else if (cleanChoice.startsWith("AIzaSy")) {
                     try {
-                        EnvConfig.saveVar(EnvConfig.DEFAULT_ENV_PATH, "GEMINI_API_KEY", choice);
-                        sessionApiKey = choice;
-                        writelnUtf8(GREEN + "✓ Detected Google Gemini API key (" + EnvConfig.mask("GEMINI_API_KEY", choice) + ") — saved to .env!\n" + RESET);
+                        EnvConfig.saveVar(EnvConfig.DEFAULT_ENV_PATH, "GEMINI_API_KEY", cleanChoice);
+                        sessionApiKey = cleanChoice;
+                        writelnUtf8(GREEN + "✓ Detected Google Gemini API key (" + EnvConfig.mask("GEMINI_API_KEY", cleanChoice) + ") — saved to .env!\n" + RESET);
                         return resolveProvider(null);
                     } catch (IOException e) {
                         writelnUtf8(RED + "✗ Error saving .env: " + e.getMessage() + "\n" + RESET);
@@ -694,7 +696,7 @@ public class BluiCli {
         String line2 = String.format(Locale.US, "Latency:  %s │ Steps: %d │ Cost: %s", durationFormatted, steps, costFormatted);
 
         String safeModel = model;
-        if (safeModel != null && (safeModel.startsWith("sk-") || safeModel.contains("••••") || safeModel.startsWith("AIzaSy"))) {
+        if (safeModel == null || safeModel.isBlank() || EnvConfig.isCorruptModel(safeModel, sessionOpenRouterKey) || EnvConfig.isCorruptModel(safeModel, sessionApiKey)) {
             safeModel = OpenRouterClient.DEFAULT_MODEL;
         }
 
@@ -957,10 +959,12 @@ public class BluiCli {
         }
 
         String rest = input.trim();
-        // Strip leading blui swarm, blui, or swarm keywords
-        rest = rest.replaceFirst("(?i)^(blui\\s+)?(swarm|/swarm)\\s*", "").trim();
+        // 1. Strip leading blui if present
+        rest = rest.replaceFirst("(?i)^blui\\s+", "").trim();
+        // 2. Strip leading swarm or /swarm if present
+        rest = rest.replaceFirst("(?i)^(swarm|/swarm)\\s*", "").trim();
 
-        // Check for boost flag (/boost, --boost, -boost, or standalone boost keyword)
+        // 3. Check for boost flag (/boost, --boost, -boost, or standalone boost keyword at start)
         boolean boost = false;
         Pattern boostFlag = Pattern.compile("(?i)(^|\\s)(/(?:boost)|--(?:boost)|-(?:boost))(\\s+|$)");
         Matcher mBoost = boostFlag.matcher(rest);
@@ -972,11 +976,13 @@ public class BluiCli {
             rest = rest.replaceFirst("(?i)^(/boost|boost)\\s*", "").trim();
         }
 
-        // Check for goal flag (/goal, --goal, -goal, or goal keyword)
-        Pattern goalFlag = Pattern.compile("(?i)(^|\\s)(/(?:goal)|--(?:goal)|-(?:goal)|goal)(\\s+|$)");
+        // 4. Check for goal flag (/goal, --goal, -goal, or leading goal keyword)
+        Pattern goalFlag = Pattern.compile("(?i)(^|\\s)(/(?:goal)|--(?:goal)|-(?:goal))(\\s+|$)");
         Matcher mGoal = goalFlag.matcher(rest);
         if (mGoal.find()) {
-            rest = rest.substring(mGoal.end()).trim();
+            rest = (rest.substring(0, mGoal.start()) + " " + rest.substring(mGoal.end())).trim();
+        } else if (rest.matches("(?i)^(/goal|goal)(\\s+.*|$)")) {
+            rest = rest.replaceFirst("(?i)^(/goal|goal)\\s*", "").trim();
         }
 
         String cleaned = cleanGoal(rest);

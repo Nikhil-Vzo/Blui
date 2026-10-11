@@ -43,12 +43,26 @@ public class EnvConfigTest {
     private static void testDirectPastedApiKeyAtMenuPrompt() {
         Map<String, String> backup = EnvConfig.load(EnvConfig.DEFAULT_ENV_PATH);
         try {
+            // Direct paste without quotes
             java.util.Scanner scanner = new java.util.Scanner("sk-or-v1-abc123test\n");
             StringBuilder outBuf = new StringBuilder();
             Map<String, String> result = EnvConfig.runInteractiveWizard(scanner, s -> outBuf.append(s).append("\n"), s -> outBuf.append(s), null);
 
             assertCondition("sk-or-v1-abc123test".equals(result.get("OPENROUTER_API_KEY")),
                     "Must save directly pasted OpenRouter API key from menu prompt");
+
+            // Direct paste with quotes
+            java.util.Scanner quotedScanner = new java.util.Scanner("\"sk-or-v1-quotedtest\"\n");
+            Map<String, String> quotedResult = EnvConfig.runInteractiveWizard(quotedScanner, s -> {}, s -> {}, null);
+            assertCondition("sk-or-v1-quotedtest".equals(quotedResult.get("OPENROUTER_API_KEY")),
+                    "Must unquote directly pasted OpenRouter API key from menu prompt");
+
+            // Direct paste with Bearer prefix
+            java.util.Scanner bearerScanner = new java.util.Scanner("Bearer sk-or-v1-bearertest\n");
+            Map<String, String> bearerResult = EnvConfig.runInteractiveWizard(bearerScanner, s -> {}, s -> {}, null);
+            assertCondition("sk-or-v1-bearertest".equals(bearerResult.get("OPENROUTER_API_KEY")),
+                    "Must strip Bearer prefix from directly pasted OpenRouter API key");
+
             System.out.println("  ✓ testDirectPastedApiKeyAtMenuPrompt passed");
         } finally {
             if (!backup.isEmpty()) {
@@ -81,6 +95,13 @@ public class EnvConfigTest {
 
         String nonSecret = EnvConfig.mask("OLLAMA_HOST", "http://localhost:11434");
         assertCondition("http://localhost:11434".equals(nonSecret), "Non-secret variable should not be masked");
+
+        String customModel = EnvConfig.mask("OPENROUTER_MODEL", "anthropic/claude-3.5-sonnet");
+        assertCondition("anthropic/claude-3.5-sonnet".equals(customModel), "OPENROUTER_MODEL should not be masked");
+
+        String quotedKey = EnvConfig.mask("OPENROUTER_API_KEY", "\"sk-or-v1-0123456789abcdef\"");
+        assertCondition(quotedKey.contains("••••"), "Quoted key should be masked");
+        assertCondition(!quotedKey.contains("\""), "Masked key should not contain surrounding quotes");
 
         System.out.println("  ✓ testMasking passed");
     }
@@ -167,6 +188,26 @@ public class EnvConfigTest {
             Map<String, String> maskedReload = EnvConfig.load(tempEnv);
             assertCondition("nvidia/nemotron-3.5-lightning:free".equals(maskedReload.get("OPENROUTER_MODEL")),
                     "Masked bullet model must be reset to default model");
+
+            // Test quoted corrupt model in .env
+            String quotedContent = "OPENROUTER_API_KEY=\"sk-or-v1-secret-key-1234567890abcdef\"\n" +
+                                   "OPENROUTER_MODEL=\"sk-or-v1-secret-key-1234567890abcdef\"\n";
+            Files.writeString(tempEnv, quotedContent);
+            Map<String, String> loadedQuoted = EnvConfig.load(tempEnv);
+            assertCondition("nvidia/nemotron-3.5-lightning:free".equals(loadedQuoted.get("OPENROUTER_MODEL")),
+                    "Quoted corrupted OPENROUTER_MODEL must be purged/reset on load");
+
+            // Test Bearer prefixed corrupt model
+            EnvConfig.saveVar(tempEnv, "OPENROUTER_MODEL", "Bearer sk-or-v1-accidental");
+            Map<String, String> loadedBearer = EnvConfig.load(tempEnv);
+            assertCondition("nvidia/nemotron-3.5-lightning:free".equals(loadedBearer.get("OPENROUTER_MODEL")),
+                    "Bearer prefixed corrupted OPENROUTER_MODEL must be reset");
+
+            // Test valid custom model is preserved and not overwritten
+            EnvConfig.saveVar(tempEnv, "OPENROUTER_MODEL", "anthropic/claude-3.5-sonnet");
+            Map<String, String> loadedCustom = EnvConfig.load(tempEnv);
+            assertCondition("anthropic/claude-3.5-sonnet".equals(loadedCustom.get("OPENROUTER_MODEL")),
+                    "Valid custom OPENROUTER_MODEL must be preserved");
 
             Files.deleteIfExists(tempEnv);
             System.out.println("  ✓ testCorruptedOpenRouterModelPurgedAndReset passed");

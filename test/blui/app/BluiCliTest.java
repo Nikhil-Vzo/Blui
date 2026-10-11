@@ -134,6 +134,14 @@ public class BluiCliTest {
         assertCondition(!leakJoined.contains("sk-or-v1-accidental-api-key"), "Telemetry box must never print API key in model field");
         assertCondition(leakJoined.contains("nvidia/nemotron-3.5-lightning:free"), "Telemetry box must fallback to default model name");
 
+        // Verify bullet masked model is sanitized in telemetry card
+        List<String> withBullets = BluiCli.buildTelemetryLinesForTesting(
+                100, 20, 0.0001, 1, 500, "sk-or-••••••••abcd"
+        );
+        String bulletsJoined = String.join("\n", withBullets);
+        assertCondition(!bulletsJoined.contains("••••"), "Telemetry box must never print bullet tokens in model field");
+        assertCondition(bulletsJoined.contains("nvidia/nemotron-3.5-lightning:free"), "Telemetry box with bullets must fallback to default model name");
+
         System.out.println("  ✓ testTelemetryCardFormatting passed");
     }
 
@@ -337,6 +345,17 @@ public class BluiCliTest {
         BluiCli.SwarmOptions optBoth = BluiCli.parseSwarmCommandForTesting("swarm /boost /goal \"audit blui codebase\"");
         assertCondition(optBoth.boost(), "Boost must be true for /boost /goal");
         assertCondition("audit blui codebase".equals(optBoth.goal()), "Goal must match: " + optBoth.goal());
+
+        // Bug reproduction: blui /boost command stripping blui prefix
+        BluiCli.SwarmOptions optBluiBoost = BluiCli.parseSwarmCommandForTesting("blui /boost \"audit blui codebase\"");
+        assertCondition(optBluiBoost.boost(), "Boost must be true for blui /boost");
+        assertCondition("audit blui codebase".equals(optBluiBoost.goal()),
+                "Goal should not retain 'blui' prefix: " + optBluiBoost.goal());
+
+        // Bug reproduction: goal containing the word 'goal' without flag must NOT be chopped
+        BluiCli.SwarmOptions optGoalInSentence = BluiCli.parseSwarmCommandForTesting("swarm \"our primary goal is performance\"");
+        assertCondition("our primary goal is performance".equals(optGoalInSentence.goal()),
+                "Goal text containing 'goal' must be preserved in full: " + optGoalInSentence.goal());
 
         // MinimalJson extractString for non-string key
         String jsonWithNumber = "{\"key\": 123, \"other\": \"hello\"}";

@@ -38,15 +38,9 @@ public final class OpenRouterClient implements LlmProvider {
     }
 
     public OpenRouterClient(String apiKey, String model, String reasoningEffort, Duration timeout) {
-        this.apiKey = apiKey != null ? apiKey.trim() : "";
-        String m = model != null && !model.isBlank() ? model.trim() : DEFAULT_MODEL;
-        String envKey = resolveEnv("OPENROUTER_API_KEY");
-        if (envKey == null || envKey.isBlank()) {
-            envKey = blui.app.EnvConfig.get("OPENROUTER_API_KEY");
-        }
-        if (m.startsWith("sk-") || m.contains("••••") ||
-            (!this.apiKey.isBlank() && m.equalsIgnoreCase(this.apiKey)) ||
-            (envKey != null && !envKey.isBlank() && m.equalsIgnoreCase(envKey.trim()))) {
+        this.apiKey = blui.app.EnvConfig.cleanSecret(apiKey);
+        String m = model != null && !model.isBlank() ? blui.app.EnvConfig.cleanSecret(model) : DEFAULT_MODEL;
+        if (m.isBlank() || blui.app.EnvConfig.isCorruptModel(m, this.apiKey)) {
             m = DEFAULT_MODEL;
         }
         this.model = m;
@@ -59,7 +53,7 @@ public final class OpenRouterClient implements LlmProvider {
 
     private static String resolveEnv(String key) {
         String val = System.getenv(key);
-        return val != null ? val.trim() : null;
+        return val != null ? blui.app.EnvConfig.cleanSecret(val) : null;
     }
 
     private static String resolveDefaultModel() {
@@ -71,11 +65,10 @@ public final class OpenRouterClient implements LlmProvider {
         if (apiKey == null || apiKey.isBlank()) {
             apiKey = blui.app.EnvConfig.get("OPENROUTER_API_KEY");
         }
-        if (env != null && (env.isBlank() || env.startsWith("sk-") || env.contains("••••") ||
-                (apiKey != null && !apiKey.isBlank() && env.trim().equalsIgnoreCase(apiKey.trim())))) {
+        if (env != null && (env.isBlank() || blui.app.EnvConfig.isCorruptModel(env, apiKey))) {
             return DEFAULT_MODEL;
         }
-        return (env != null && !env.isBlank()) ? env.trim() : DEFAULT_MODEL;
+        return (env != null && !env.isBlank()) ? blui.app.EnvConfig.cleanSecret(env) : DEFAULT_MODEL;
     }
 
     private static String resolveDefaultReasoningEffort() {

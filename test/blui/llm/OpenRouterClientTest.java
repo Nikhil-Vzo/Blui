@@ -41,6 +41,26 @@ public class OpenRouterClientTest {
         assertCondition("nvidia/nemotron-3.5-lightning:free".equals(clientBlank.modelName()),
                 "Blank model must revert to DEFAULT_MODEL");
 
+        // Model with surrounding quotes
+        OpenRouterClient clientQuoted = new OpenRouterClient("test-key", "\"sk-or-v1-quoted-secret\"");
+        assertCondition("nvidia/nemotron-3.5-lightning:free".equals(clientQuoted.modelName()),
+                "Quoted accidental API key in model must revert to DEFAULT_MODEL");
+
+        // Model with Bearer prefix
+        OpenRouterClient clientBearer = new OpenRouterClient("test-key", "Bearer sk-or-v1-bearer-key");
+        assertCondition("nvidia/nemotron-3.5-lightning:free".equals(clientBearer.modelName()),
+                "Bearer prefixed key in model must revert to DEFAULT_MODEL");
+
+        // Model with Gemini key
+        OpenRouterClient clientGemini = new OpenRouterClient("test-key", "AIzaSyFakeGeminiKey123");
+        assertCondition("nvidia/nemotron-3.5-lightning:free".equals(clientGemini.modelName()),
+                "Accidental Gemini API key in OpenRouter model must revert to DEFAULT_MODEL");
+
+        // Valid custom model preserved
+        OpenRouterClient clientCustom = new OpenRouterClient("test-key", "anthropic/claude-3.5-sonnet");
+        assertCondition("anthropic/claude-3.5-sonnet".equals(clientCustom.modelName()),
+                "Valid custom model must be preserved without reverting");
+
         System.out.println("  ✓ testAccidentalApiKeyAsModelRevertsToDefault passed");
     }
 

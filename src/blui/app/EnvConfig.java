@@ -73,6 +73,25 @@ public final class EnvConfig {
     }
 
     /**
+     * Strips leading/trailing quotes and 'Bearer ' authorization prefixes from credentials.
+     */
+    public static String cleanSecret(String s) {
+        if (s == null) return "";
+        String cleaned = s.trim();
+        while ((cleaned.startsWith("\"") && cleaned.endsWith("\"")) || (cleaned.startsWith("'") && cleaned.endsWith("'"))) {
+            if (cleaned.length() >= 2) {
+                cleaned = cleaned.substring(1, cleaned.length() - 1).trim();
+            } else {
+                break;
+            }
+        }
+        if (cleaned.startsWith("Bearer ")) {
+            cleaned = cleaned.substring(7).trim();
+        }
+        return cleaned;
+    }
+
+    /**
      * Determines whether an environment variable key represents a sensitive credential.
      */
     public static boolean isSecretKey(String key) {
@@ -89,15 +108,17 @@ public final class EnvConfig {
      */
     public static boolean isCorruptModel(String model, String apiKey) {
         if (model == null || model.isBlank()) return false;
-        String trimmed = model.trim();
+        String trimmed = cleanSecret(model);
+        if (trimmed.isBlank()) return false;
         if (trimmed.startsWith("sk-") || trimmed.startsWith("AIzaSy") || trimmed.contains("••••")) {
             return true;
         }
-        if (apiKey != null && !apiKey.isBlank() && trimmed.equalsIgnoreCase(apiKey.trim())) {
+        String cleanApiKey = cleanSecret(apiKey);
+        if (!cleanApiKey.isBlank() && trimmed.equalsIgnoreCase(cleanApiKey)) {
             return true;
         }
-        String envKey = System.getenv("OPENROUTER_API_KEY");
-        if (envKey != null && !envKey.isBlank() && trimmed.equalsIgnoreCase(envKey.trim())) {
+        String envKey = cleanSecret(System.getenv("OPENROUTER_API_KEY"));
+        if (!envKey.isBlank() && trimmed.equalsIgnoreCase(envKey)) {
             return true;
         }
         return false;
@@ -132,7 +153,7 @@ public final class EnvConfig {
             return val;
         }
 
-        String trimmed = val.trim();
+        String trimmed = cleanSecret(val);
         if (trimmed.length() > 10) {
             return trimmed.substring(0, 6) + "••••••••" + trimmed.substring(trimmed.length() - 4);
         } else if (trimmed.length() > 4) {
@@ -212,7 +233,7 @@ public final class EnvConfig {
         if (val == null || val.isBlank() || "clear".equalsIgnoreCase(val.trim())) {
             current.remove(key);
         } else {
-            String newVal = val.trim();
+            String newVal = cleanSecret(val);
             if ("OPENROUTER_MODEL".equals(key)) {
                 String apiKey = current.get("OPENROUTER_API_KEY");
                 if (isCorruptModel(newVal, apiKey)) {
@@ -234,16 +255,19 @@ public final class EnvConfig {
         if (envVal != null && !envVal.isBlank()) {
             if ("OPENROUTER_MODEL".equals(key)) {
                 String apiKey = System.getenv("OPENROUTER_API_KEY");
+                if (apiKey == null || apiKey.isBlank()) {
+                    apiKey = load(DEFAULT_ENV_PATH).get("OPENROUTER_API_KEY");
+                }
                 if (isCorruptModel(envVal, apiKey)) {
                     envVal = DEFAULT_OPENROUTER_MODEL;
                 }
             }
-            return envVal.trim();
+            return cleanSecret(envVal);
         }
         Map<String, String> envMap = load(DEFAULT_ENV_PATH);
         String fileVal = envMap.get(key);
         if (fileVal != null && !fileVal.isBlank()) {
-            return fileVal.trim();
+            return cleanSecret(fileVal);
         }
         return null;
     }
@@ -274,20 +298,21 @@ public final class EnvConfig {
             if (scanner.hasNextLine()) {
                 choice = scanner.nextLine().trim();
             }
+            String cleanChoice = cleanSecret(choice);
 
             // If user directly pasted an API key at the menu prompt, save it immediately
-            if (choice.startsWith("sk-or-") || choice.startsWith("sk-") || choice.startsWith("AIzaSy")) {
-                if (choice.startsWith("AIzaSy")) {
+            if (cleanChoice.startsWith("sk-or-") || cleanChoice.startsWith("sk-") || cleanChoice.startsWith("AIzaSy")) {
+                if (cleanChoice.startsWith("AIzaSy")) {
                     try {
-                        saveVar(DEFAULT_ENV_PATH, "GEMINI_API_KEY", choice);
-                        out.accept(GREEN + "✓ Detected Google Gemini API key (" + mask("GEMINI_API_KEY", choice) + ") — saved to .env!\n" + RESET);
+                        saveVar(DEFAULT_ENV_PATH, "GEMINI_API_KEY", cleanChoice);
+                        out.accept(GREEN + "✓ Detected Google Gemini API key (" + mask("GEMINI_API_KEY", cleanChoice) + ") — saved to .env!\n" + RESET);
                     } catch (IOException e) {
                         out.accept(RED + "✗ Error saving .env: " + e.getMessage() + "\n" + RESET);
                     }
                 } else {
                     try {
-                        saveVar(DEFAULT_ENV_PATH, "OPENROUTER_API_KEY", choice);
-                        out.accept(GREEN + "✓ Detected OpenRouter API key (" + mask("OPENROUTER_API_KEY", choice) + ") — saved to .env!\n" + RESET);
+                        saveVar(DEFAULT_ENV_PATH, "OPENROUTER_API_KEY", cleanChoice);
+                        out.accept(GREEN + "✓ Detected OpenRouter API key (" + mask("OPENROUTER_API_KEY", cleanChoice) + ") — saved to .env!\n" + RESET);
                     } catch (IOException e) {
                         out.accept(RED + "✗ Error saving .env: " + e.getMessage() + "\n" + RESET);
                     }
@@ -356,9 +381,14 @@ public final class EnvConfig {
                 updated.remove(def.key());
                 out.accept(YELLOW + "      └─ Cleared.\n" + RESET);
             } else {
-                String newVal = input.trim();
+                String newVal = cleanSecret(input);
+                if ("OPENROUTER_MODEL".equals(def.key()) && isCorruptModel(newVal, updated.get("OPENROUTER_API_KEY"))) {
+                    newVal = DEFAULT_OPENROUTER_MODEL;
+                    out.accept(YELLOW + "      └─ Note: Accidental API key detected for model ID. Resetting to default: " + DEFAULT_OPENROUTER_MODEL + "\n" + RESET);
+                } else {
+                    out.accept(GREEN + "      └─ Updated: " + mask(def.key(), newVal) + "\n" + RESET);
+                }
                 updated.put(def.key(), newVal);
-                out.accept(GREEN + "      └─ Updated: " + mask(def.key(), newVal) + "\n" + RESET);
             }
 
             index++;
