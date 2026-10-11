@@ -1035,7 +1035,7 @@ public class BluiCli {
         LlmProvider provider = resolveProvider(null);
 
         SwarmGovernor governor = SwarmGovernor.standard();
-        Duration joinTimeout = Duration.ofSeconds(20);
+        Duration joinTimeout = Duration.ofSeconds(60);
         SwarmEngine engine = new SwarmEngine(governor, provider, joinTimeout);
         SwarmTask task = SwarmTask.of(goal);
 
