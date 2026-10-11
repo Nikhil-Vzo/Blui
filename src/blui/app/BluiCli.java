@@ -133,7 +133,6 @@ public class BluiCli {
         lines.add(CYAN + " blui env              " + DIM + "# configure environment ('k' to keep)" + RESET);
         lines.add(CYAN + " blui traces           " + DIM + "# list saved flight ledgers" + RESET);
         lines.add(CYAN + " blui replay " + GRAY + "<id>      " + DIM + "# replay past flight trace" + RESET);
-        lines.add(CYAN + " blui bench            " + DIM + "# spawn 500 virtual threads" + RESET);
         lines.add(CYAN + " blui status           " + DIM + "# reprint runtime diagnostics" + RESET);
         lines.add(CYAN + " blui exit             " + DIM + "# terminate shell session" + RESET);
         lines.add(DIM + " ──────────────────────────────────────────────────────────" + RESET);
@@ -245,8 +244,6 @@ public class BluiCli {
             printStatusCards();
         } else if (input.equalsIgnoreCase("help") || input.equalsIgnoreCase("blui help")) {
             printHelp();
-        } else if (input.equalsIgnoreCase("bench") || input.equalsIgnoreCase("blui bench")) {
-            runBenchmark();
         } else if (input.equalsIgnoreCase("traces") || input.equalsIgnoreCase("blui traces")) {
             listTraces();
         } else if (input.startsWith("replay ") || input.startsWith("blui replay ")) {
@@ -307,7 +304,6 @@ public class BluiCli {
 
     private static void printHelp() {
         writelnUtf8(BOLD + "\nAvailable Commands:" + RESET);
-        writelnUtf8("  " + CYAN + "bench" + RESET + "                 - Run 500 concurrent virtual thread tasks");
         writelnUtf8("  " + CYAN + "run <goal>" + RESET + "            - Execute an agent loop with Governor and Loom");
         writelnUtf8("  " + CYAN + "swarm <goal>" + RESET + "          - Execute parallel multi-agent swarm on virtual threads");
         writelnUtf8("  " + CYAN + "env [gemini|ollama]" + RESET + "   - Configure provider environment (Hermes-style 'k' to keep)");
@@ -377,25 +373,6 @@ public class BluiCli {
             if (!modified) break;
         }
         return cleaned;
-    }
-
-    private static void runBenchmark() {
-        writelnUtf8(CYAN + "\n[LOOM] Spawning 500 Virtual Threads with Structured Scope..." + RESET);
-        long start = System.currentTimeMillis();
-
-        LoomRunner runner = new LoomRunner();
-        List<ToolExecution> tasks = new ArrayList<>();
-        Tool mockTool = input -> new ToolResults("BenchWorker", "OK: " + input, true, 10);
-
-        for (int i = 0; i < 500; i++) {
-            tasks.add(new ToolExecution(mockTool, "Task-" + i));
-        }
-
-        List<ToolResults> results = runner.runConcurrent(tasks, Duration.ofSeconds(5));
-        long duration = System.currentTimeMillis() - start;
-
-        writelnUtf8(GREEN + BOLD + "✓ Completed " + results.size() + " Virtual Threads in " + duration + "ms!" + RESET);
-        writelnUtf8(GRAY + "  Average Join SLA: <0.25ms per task | Memory overhead: ~0.5MB\n" + RESET);
     }
 
     private static String resolveGeminiApiKey(Scanner scanner) {

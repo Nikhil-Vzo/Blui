@@ -109,7 +109,6 @@ java -cp bin blui.app.BluiCli
 
 ### 2. Available Interactive Commands
 ```text
-blui > bench                 # Spawns 500 concurrent virtual threads (finishes in ~23ms)
 blui > run <goal>            # Executes live autonomous agent with Governor safety checks
 blui > swarm <goal>          # Runs parallel multi-agent specialist swarm on virtual threads
 blui > swarm /boost <goal>   # Turbo-charged 8-agent concurrent review with deep Loom stress
@@ -268,12 +267,12 @@ Every component is written from scratch using pure Java 24 standard library prim
 
 ---
 
-## 🧪 Verification & Testing (30/30 Tests Passing)
+## 🧪 Verification & Testing (31/31 Tests Passing)
 
 Blui includes standalone, zero-dependency verification suites with 100% passing tests:
 
 ```powershell
-# Compile & run full test suite (30/30 tests across 5 suites)
+# Compile & run full test suite (31/31 tests across 5 suites)
 javac -d bin (Get-ChildItem -Recurse -Filter "*.java" src).FullName (Get-ChildItem -Recurse -Filter "*.java" test).FullName
 java -cp bin blui.core.BluiEngineTest
 java -cp bin blui.replay.TraceStoreTest
@@ -314,10 +313,11 @@ Running BluiCli verification suite...
   ✓ testSystemPromptDirectives passed
   ✓ testGeminiModelDefaults passed
   ✓ testSwarmHeaderCommandIncluded passed
+  ✓ testBenchCommandRemovedFromHeader passed
   ✓ testSwarmCommandParsing passed
   ✓ testSwarmTelemetryBoxFormatting passed
   ✓ testExecutiveSynthesisBoxFormatting passed
-All 13 BluiCli tests passed successfully!
+All 14 BluiCli tests passed successfully!
 
 Running SwarmEngine verification suite...
   ✓ testDefaultPersonas passed

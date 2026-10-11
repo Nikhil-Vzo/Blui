@@ -24,11 +24,12 @@ public class BluiCliTest {
         testSystemPromptDirectives();
         testGeminiModelDefaults();
         testSwarmHeaderCommandIncluded();
+        testBenchCommandRemovedFromHeader();
         testSwarmCommandParsing();
         testSwarmTelemetryBoxFormatting();
         testExecutiveSynthesisBoxFormatting();
 
-        System.out.println("All 13 BluiCli tests passed successfully!");
+        System.out.println("All 14 BluiCli tests passed successfully!");
     }
 
     private static void testCardWidthsAndAlignment() {
@@ -268,6 +269,15 @@ public class BluiCliTest {
         }
         assertCondition(foundSwarm, "Right side header COMMANDS must include 'blui swarm <goal>'");
         System.out.println("  ✓ testSwarmHeaderCommandIncluded passed");
+    }
+
+    private static void testBenchCommandRemovedFromHeader() {
+        List<String> headerLines = BluiCli.buildRightSideHeaderForTesting();
+        for (String line : headerLines) {
+            String stripped = stripAnsi(line);
+            assertCondition(!stripped.contains("blui bench"), "Header commands must not include deprecated 'blui bench'");
+        }
+        System.out.println("  ✓ testBenchCommandRemovedFromHeader passed");
     }
 
     private static void testSwarmCommandParsing() {
