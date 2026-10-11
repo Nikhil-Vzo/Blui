@@ -63,7 +63,7 @@ Modern multi-agent frameworks are plagued by leaky abstractions, unobservable ex
          ┌─────────────────────┐┌─────────────────────┐┌─────────────────────┐
          │      blui.llm       ││    blui.governor    ││      blui.loom      │
          │ (The Agent's Brain) ││ Token budgeting,    ││ Project Loom        │
-         │ Gemini 2.5 & Ollama ││ cost limits, loop   ││ virtual-thread      │
+         │ Gemini 3.8 & Ollama ││ cost limits, loop   ││ virtual-thread      │
          │ & MinimalJson parser││ circuit-breaker     ││ concurrent runner   │
          └─────────────────────┘└─────────────────────┘└──────────┬──────────┘
                                                                   │
@@ -124,30 +124,25 @@ blui > exit                  # Terminates the shell session
 
 ## 🔑 LLM Provider & Hermes-Style Environment Setup
 
-Blui supports both **Cloud LLMs** (Google Gemini 2.5 Flash via Google AI Studio) and **100% Offline Local LLMs** (Ollama @ `localhost:11434`).
+Blui supports both **Cloud LLMs** (Google Gemini 3.8 Flash via Google AI Studio) and **100% Offline Local LLMs** (Ollama @ `localhost:11434`).
 
 ### Terminal-Native Hermes-Style Wizard (`blui > env`)
 Like Hermes Agent, you can inspect and update your environment directly inside the terminal:
 ```text
-┌─ ENVIRONMENT CONFIGURATION (Hermes-Style) ─────────────────────────┐
-│ Configure API keys & provider endpoints. Stored locally in .env.  │
-│ • Press Enter or 'k' to KEEP current value                          │
-│ • Type a new value to CHANGE it                                     │
-│ • Type 'clear' to REMOVE it                                         │
+┌─ ENVIRONMENT SETUP ────────────────────────────────────────────────┐
+│ Choose provider to configure:                                      │
+│   [1] Google Gemini (API Key)                                      │
+│   [2] Local Ollama  (Model Name)                                   │
+│   [3] Both Providers (Gemini Key + Ollama Model)                   │
+│   [4] Advanced       (All Settings & Endpoints)                    │
 └────────────────────────────────────────────────────────────────────┘
+Enter choice [1-4] (Default: 1 for Gemini): 1
 
-[1/3] GEMINI_API_KEY (Google Gemini API Key (AI Studio))
-      Current: AIzaSy••••••••tKey
-      Enter value (or 'k' to keep): k
-      └─ Kept existing value.
+─ Configuring Google Gemini ─────────────────────────────────────────
+Press Enter or 'k' to keep existing value | Type 'clear' to remove
 
-[2/3] OLLAMA_HOST (Local Ollama Host Endpoint)
-      Current: http://localhost:11434
-      Enter value (or 'k' to keep): k
-      └─ Kept existing value.
-
-[3/3] OLLAMA_MODEL (Local Ollama Model Name)
-      Current: llama3.2
+[1/1] GEMINI_API_KEY (Google Gemini API Key (AI Studio))
+      Current: AQ.Ab8••••••••LOJg
       Enter value (or 'k' to keep): k
       └─ Kept existing value.
 
@@ -169,6 +164,24 @@ Blui resolves your credentials in the following automatic hierarchy:
 
 ---
 
+## 📊 End-of-Answer Token & Hardware Telemetry
+
+At the conclusion of every agent execution, Blui outputs an authentic, hardware-measured telemetry card:
+
+```text
+┌─ TELEMETRY ──────────────────────────────────────────────────────────┐
+│ Tokens:   454 in (prompt) │ 49 out (completion) │ 503 total          │
+│ Latency:  9.82s (9823ms) │ Steps: 4 │ Cost: $0.00151                │
+│ Model:    gemini-3.8-flash │ Governor: Nominal (Budget OK)           │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+* **Prompt / Completion Split**: Tracks exact input vs output tokens parsed from Gemini `usageMetadata` and Ollama `eval_count`.
+* **Sub-Millisecond Wall Clock**: Measures pure JVM tool execution vs. network LLM round-trips.
+* **Financial Governor Tracking**: Atomic calculation of real USD cost against safety budgets.
+
+---
+
 ## 💾 Black-Box Flight Recorder (`.blui/traces/`)
 
 Every agent run is automatically recorded as an immutable JSON ledger in `.blui/traces/`:
@@ -179,7 +192,7 @@ Every agent run is automatically recorded as an immutable JSON ledger in `.blui/
 
 ---
 
-## 🧩 Codebase Audit (26 Java Files & Zero Dependencies)
+## 🧩 Codebase Audit (27 Java Files & Zero Dependencies)
 
 Every component is written from scratch using pure Java 24 standard library primitives:
 
@@ -191,34 +204,22 @@ Every component is written from scratch using pure Java 24 standard library prim
 | **`blui.tools`** | `ShellTool.java`<br>`FileTool.java`<br>`HttpTool.java` | **291 LOC** | **Pillar 1 (Hands)**: OS process execution with timeout kills, sandboxed workspace filesystem I/O, web fetcher. |
 | **`blui.llm`** | `MinimalJson.java`<br>`LlmProvider.java`<br>`GeminiClient.java`<br>`OllamaClient.java` | **400 LOC** | **Pillar 2 (Brain)**: Zero-dep JSON parser, Google Gemini API free tier (`gemini-3.8-flash`), local offline Ollama (`localhost:11434`), real token metering. |
 | **`blui.replay`** | `StepTrace.java`<br>`AgentTrace.java`<br>`ReplayEngine.java`<br>`TraceStore.java`<br>`TraceStoreTest.java` | **339 LOC** | **Pillar 3 (Memory)**: Black-box flight recorder to `.blui/traces/*.json`, step-by-step post-mortem inspection, state restoration. |
-| **`blui.app`** | `TerminalArt.java`<br>`BluiCli.java`<br>`EnvConfig.java`<br>`EnvConfigTest.java` | **852 LOC** | Sub-pixel ANSI 24-bit Truecolor RGBA mascot renderer, hardware status cards, Hermes-style `.env` wizard, and interactive REPL shell. |
-| **Total** | **26 Java Files (23 src + 3 test)** | **2,422 LOC** | **100% Pure JDK Standard Library** |
+| **`blui.app`** | `TerminalArt.java`<br>`BluiCli.java`<br>`EnvConfig.java`<br>`EnvConfigTest.java`<br>`BluiCliTest.java` | **990 LOC** | Sub-pixel ANSI 24-bit Truecolor RGBA mascot renderer, hardware status cards, Hermes-style `.env` wizard, layout test suite, and interactive REPL shell. |
+| **Total** | **27 Java Files (23 src + 4 test)** | **2,560 LOC** | **100% Pure JDK Standard Library** |
 
 ---
 
-## 🧪 Verification & Testing (10/10 Tests Passing)
+## 🧪 Verification & Testing (15/15 Tests Passing)
 
 Blui includes standalone, zero-dependency verification suites with 100% passing tests:
 
 ```powershell
-# Compile & run full test suite (10/10 tests)
-javac -d bin -cp bin test/blui/core/BluiEngineTest.java test/blui/replay/TraceStoreTest.java test/blui/app/EnvConfigTest.java
+# Compile & run full test suite (15/15 tests across 4 suites)
+javac -d bin (Get-ChildItem -Recurse -Filter "*.java" src).FullName (Get-ChildItem -Recurse -Filter "*.java" test).FullName
 java -cp bin blui.core.BluiEngineTest
 java -cp bin blui.replay.TraceStoreTest
 java -cp bin blui.app.EnvConfigTest
-```
-
----
-
-## 🧪 Verification & Testing
-
-Blui includes standalone, zero-dependency verification suites with 100% passing tests:
-
-```powershell
-# Compile & run full test suite
-javac -d bin -cp bin test/blui/core/BluiEngineTest.java test/blui/replay/TraceStoreTest.java
-java -cp bin blui.core.BluiEngineTest
-java -cp bin blui.replay.TraceStoreTest
+java -cp bin blui.app.BluiCliTest
 ```
 
 ```text
@@ -233,6 +234,21 @@ Running TraceStore verification suite...
   ✓ testSaveAndReadTrace passed
   ✓ testListTraces passed
 All TraceStore tests passed successfully!
+
+Running EnvConfig verification suite...
+  ✓ testKeepChoice passed
+  ✓ testMasking passed
+  ✓ testLoadAndSaveEnv passed
+  ✓ testInlineSet passed
+  ✓ testStreamlinedVariableLists passed
+All 5 EnvConfig tests passed successfully!
+
+Running BluiCli verification suite...
+  ✓ testCardWidthsAndAlignment passed
+  ✓ testRightSideHeaderWidth passed
+  ✓ testSummarizeBoundary passed
+  ✓ testTelemetryCardFormatting passed
+All 4 BluiCli tests passed successfully!
 ```
 
 ---
