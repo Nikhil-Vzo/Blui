@@ -16,8 +16,64 @@ public class SwarmEngineTest {
         testParallelExecutionOnVirtualThreadsWithinSla();
         testSwarmGovernorBudgetCapEnforcement();
         testResultSynthesisAndPersonaRouting();
+        testDynamicBudgetTripDuringExecution();
+        testBoostPersonasAndMockFindings();
 
-        System.out.println("All 4 SwarmEngine tests passed successfully!");
+        System.out.println("All 6 SwarmEngine tests passed successfully!");
+    }
+
+    private static void testDynamicBudgetTripDuringExecution() {
+        // Budget allowed for only 1 agent (~250-320 tokens), so 4 parallel agents trip the breaker dynamically
+        SwarmGovernor governor = new SwarmGovernor(300, 0.05, 0.000003);
+        assertCondition(!governor.isTripped(), "Governor must not be tripped initially");
+
+        SwarmEngine engine = new SwarmEngine(governor, Duration.ofSeconds(3));
+        SwarmTask task = new SwarmTask("task_dynamic_trip", "Parallel stress test", "core");
+
+        SwarmEngine.SwarmReport report = engine.runSwarm(task, SwarmAgent.defaultPersonas());
+        assertCondition(report.governorTripped(), "Governor must trip dynamically during execution");
+        assertCondition(report.executiveSynthesis().contains("SWARM HALT"), "Synthesis must reflect SWARM HALT");
+
+        boolean hasTripResult = report.results().stream().anyMatch(r -> !r.success() && r.findings().contains("Circuit Breaker Trip"));
+        assertCondition(hasTripResult, "At least one agent must record Circuit Breaker Trip result");
+
+        System.out.println("  ✓ testDynamicBudgetTripDuringExecution passed");
+    }
+
+    private static void testBoostPersonasAndMockFindings() {
+        SwarmGovernor governor = new SwarmGovernor(50000, 1.00, 0.000003);
+        SwarmEngine engine = new SwarmEngine(governor, Duration.ofSeconds(3));
+
+        List<SwarmAgent> boostAgents = List.of(
+            SwarmAgent.SECURITY_AUDITOR,
+            SwarmAgent.PERFORMANCE_PROFILER,
+            SwarmAgent.ARCHITECTURE_REVIEW,
+            SwarmAgent.GOVERNOR_VERIFIER,
+            blui.app.BluiCli.CONCURRENCY_TESTER,
+            blui.app.BluiCli.MEMORY_AUDITOR,
+            blui.app.BluiCli.DEPENDENCY_VERIFIER,
+            blui.app.BluiCli.LATENCY_OPTIMIZER
+        );
+
+        SwarmTask task = new SwarmTask("task_boost", "Deep stress of Loom concurrency", "runtime");
+        SwarmEngine.SwarmReport report = engine.runSwarm(task, boostAgents);
+
+        assertCondition(report.results().size() == 8, "Expected 8 results for boost swarm, got " + report.results().size());
+        assertCondition(report.virtualThreadsSpawned() == 8, "Expected 8 virtual threads spawned");
+        assertCondition(!report.governorTripped(), "Governor should not trip");
+
+        for (SwarmResult r : report.results()) {
+            assertCondition(r.success(), "Agent " + r.agentName() + " must succeed");
+            assertCondition(!r.findings().isBlank(), "Agent " + r.agentName() + " must have non-blank findings");
+        }
+
+        String synthesis = report.executiveSynthesis();
+        assertCondition(synthesis.contains("ConcurrencyTester"), "Synthesis must include ConcurrencyTester");
+        assertCondition(synthesis.contains("MemoryAuditor"), "Synthesis must include MemoryAuditor");
+        assertCondition(synthesis.contains("DependencyVerifier"), "Synthesis must include DependencyVerifier");
+        assertCondition(synthesis.contains("LatencyOptimizer"), "Synthesis must include LatencyOptimizer");
+
+        System.out.println("  ✓ testBoostPersonasAndMockFindings passed");
     }
 
     private static void testDefaultPersonas() {

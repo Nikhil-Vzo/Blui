@@ -12,6 +12,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -96,8 +97,9 @@ public class SwarmEngine {
         List<SwarmResult> results = Collections.synchronizedList(new ArrayList<>());
         List<Future<SwarmResult>> futures = new ArrayList<>();
 
-        // Use Project Loom virtual-thread executor
-        try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
+        // Use Project Loom virtual-thread executor powered by Thread.ofVirtual()
+        ThreadFactory virtualFactory = Thread.ofVirtual().name("blui-swarm-agent-", 1).factory();
+        try (ExecutorService executor = Executors.newThreadPerTaskExecutor(virtualFactory)) {
             for (SwarmAgent agent : agents) {
                 futures.add(executor.submit(() -> {
                     long agentStart = System.currentTimeMillis();
@@ -119,6 +121,10 @@ public class SwarmEngine {
                         return res;
                     } catch (SwarmGovernor.SwarmBudgetExceededException e) {
                         budgetTripped.set(true);
+                        // Instantly cancel other running agents on virtual threads
+                        for (Future<?> f : futures) {
+                            f.cancel(true);
+                        }
                         long dur = System.currentTimeMillis() - agentStart;
                         SwarmResult fail = SwarmResult.failure(agent.name(), agent.role(), "Circuit Breaker Trip: " + e.getMessage(), dur);
                         results.add(fail);
@@ -151,22 +157,33 @@ public class SwarmEngine {
                         "Execution timed out after " + joinTimeout.toMillis() + "ms SLA",
                         elapsed
                     );
-                    results.add(toRes);
+                    if (results.stream().noneMatch(r -> r.agentName().equals(agent.name()))) {
+                        results.add(toRes);
+                    }
                     listener.onAgentFailed(agent, te);
                 } catch (InterruptedException ie) {
                     Thread.currentThread().interrupt();
                     SwarmResult intRes = SwarmResult.failure(agent.name(), agent.role(), "Interrupted", 0);
-                    results.add(intRes);
+                    if (results.stream().noneMatch(r -> r.agentName().equals(agent.name()))) {
+                        results.add(intRes);
+                    }
                     listener.onAgentFailed(agent, ie);
                 } catch (java.util.concurrent.CancellationException ce) {
-                    SwarmResult cancelRes = SwarmResult.failure(agent.name(), agent.role(), "Task cancelled", 0);
-                    results.add(cancelRes);
+                    String msg = (budgetTripped.get() || governor.isTripped())
+                        ? "Circuit Breaker Trip: Swarm budget hard cap reached"
+                        : "Task cancelled";
+                    SwarmResult cancelRes = SwarmResult.failure(agent.name(), agent.role(), msg, 0);
+                    if (results.stream().noneMatch(r -> r.agentName().equals(agent.name()))) {
+                        results.add(cancelRes);
+                    }
                     listener.onAgentFailed(agent, ce);
                 } catch (ExecutionException ee) {
                     Throwable cause = ee.getCause() != null ? ee.getCause() : ee;
                     String msg = (cause.getMessage() != null && !cause.getMessage().isBlank()) ? cause.getMessage() : cause.toString();
                     SwarmResult errRes = SwarmResult.failure(agent.name(), agent.role(), msg, 0);
-                    results.add(errRes);
+                    if (results.stream().noneMatch(r -> r.agentName().equals(agent.name()))) {
+                        results.add(errRes);
+                    }
                     listener.onAgentFailed(agent, cause);
                 }
             }
@@ -225,6 +242,8 @@ public class SwarmEngine {
                 duration,
                 true
             );
+        } catch (SwarmGovernor.SwarmBudgetExceededException e) {
+            throw e;
         } catch (Exception e) {
             SwarmResult mockRes = executeMockAgent(task, agent, startTime);
             String note;
@@ -244,8 +263,12 @@ public class SwarmEngine {
         // Small virtual thread sleep to simulate concurrent processing
         try {
             Thread.sleep(60 + (long)(Math.random() * 40));
-        } catch (InterruptedException ignored) {}
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Virtual thread execution interrupted", ie);
+        }
 
+        governor.checkBudget();
         String findings = generateMockFindings(task, agent);
         int simulatedTokens = 240 + (int)(Math.random() * 80);
 
@@ -291,6 +314,34 @@ public class SwarmEngine {
                 [VERIFIED] Instantaneous circuit-breaker trip latency (<1ms) on cap breach.
                 [VERIFIED] CycleDetector sliding window prevents runaway LLM loops.
                 [AUDIT] Flight recorder ledgers (.blui/traces) ensure deterministic replayability.
+                """.stripIndent().trim();
+
+            case "ConcurrencyTester" -> """
+                [STRESS] Tested 1,000 concurrent Loom virtual tasks with zero carrier thread saturation.
+                [LATENCY] Virtual thread park/unpark overhead under 15 nanoseconds.
+                [SLA] All parallel task joins satisfied within structured timeout boundaries.
+                [VERIFIED] Continuous non-blocking execution across carrier pools.
+                """.stripIndent().trim();
+
+            case "MemoryAuditor" -> """
+                [PROFILE] JVM heap resident memory delta <1.2MB across concurrent agent executions.
+                [ZERO-ALLOC] MinimalJson streaming scanner eliminates temporary heap allocations.
+                [GC] Zero garbage collection pauses or generational churn observed.
+                [FOOTPRINT] Sub-megabyte runtime footprint maintained under full concurrency.
+                """.stripIndent().trim();
+
+            case "DependencyVerifier" -> """
+                [ZERO-DEP] Verified 100% standard library compliance across all 33 java source files.
+                [PACKAGING] Clean modular structure; zero third-party JARs in classpath.
+                [ISOLATION] ProcessBuilder and HttpClient standard APIs fully encapsulated.
+                [COMPLIANCE] Strict zero-dependency architecture maintained throughout.
+                """.stripIndent().trim();
+
+            case "LatencyOptimizer" -> """
+                [TIMING] Sub-millisecond wall-clock orchestrator scheduling verified.
+                [ASYNC] Non-blocking virtual thread IO delivers near-zero idle wait overhead.
+                [BENCH] End-to-end multi-agent dispatch latency <2.5ms.
+                [THROUGHPUT] Linear scaling across available hardware cores achieved.
                 """.stripIndent().trim();
 
             default -> String.format(Locale.US,

@@ -50,8 +50,14 @@ public final class MinimalJson {
         if (idx == -1) return null;
         int colon = json.indexOf(':', idx + search.length());
         if (colon == -1) return null;
-        int quoteStart = json.indexOf('"', colon);
-        if (quoteStart == -1) return null;
+        int p = colon + 1;
+        while (p < json.length() && Character.isWhitespace(json.charAt(p))) {
+            p++;
+        }
+        if (p >= json.length() || json.charAt(p) != '"') {
+            return null;
+        }
+        int quoteStart = p;
 
         StringBuilder sb = new StringBuilder();
         boolean escaped = false;

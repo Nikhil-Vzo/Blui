@@ -81,6 +81,9 @@ public class BluiCli {
             try {
                 new ProcessBuilder("cmd", "/c", "chcp 65001 > nul").inheritIO().start().waitFor();
             } catch (Exception ignored) {}
+            try {
+                new ProcessBuilder("cmd", "/c", "reg add HKCU\\Console /v VirtualTerminalLevel /t REG_DWORD /d 1 /f > nul 2>&1").start();
+            } catch (Exception ignored) {}
         }
     }
 
@@ -900,14 +903,31 @@ public class BluiCli {
         if (input == null || input.isBlank()) {
             return new SwarmOptions("audit blui codebase and runtime architecture", false);
         }
-        boolean boost = input.toLowerCase(Locale.ROOT).contains("boost");
-        String stripped = input.replaceFirst("(?i)^(blui\\s+)?(swarm|/swarm|boost|/boost|goal|/goal)\\s*", "").trim();
-        stripped = stripped
-            .replaceAll("(?i)/(boost|goal)", "")
-            .replaceAll("(?i)--(boost|goal)", "")
-            .replaceAll("(?i)-(boost|goal)", "")
-            .trim();
-        String cleaned = cleanGoal(stripped);
+
+        String rest = input.trim();
+        // Strip leading blui swarm, blui, or swarm keywords
+        rest = rest.replaceFirst("(?i)^(blui\\s+)?(swarm|/swarm)\\s*", "").trim();
+
+        // Check for boost flag (/boost, --boost, -boost, or standalone boost keyword)
+        boolean boost = false;
+        Pattern boostFlag = Pattern.compile("(?i)(^|\\s)(/(?:boost)|--(?:boost)|-(?:boost))(\\s+|$)");
+        Matcher mBoost = boostFlag.matcher(rest);
+        if (mBoost.find()) {
+            boost = true;
+            rest = (rest.substring(0, mBoost.start()) + " " + rest.substring(mBoost.end())).trim();
+        } else if (rest.matches("(?i)^(/boost|boost)(\\s+.*|$)")) {
+            boost = true;
+            rest = rest.replaceFirst("(?i)^(/boost|boost)\\s*", "").trim();
+        }
+
+        // Check for goal flag (/goal, --goal, -goal, or goal keyword)
+        Pattern goalFlag = Pattern.compile("(?i)(^|\\s)(/(?:goal)|--(?:goal)|-(?:goal)|goal)(\\s+|$)");
+        Matcher mGoal = goalFlag.matcher(rest);
+        if (mGoal.find()) {
+            rest = rest.substring(mGoal.end()).trim();
+        }
+
+        String cleaned = cleanGoal(rest);
         if (cleaned.isBlank()) {
             cleaned = "audit blui codebase and runtime architecture";
         }
@@ -988,17 +1008,22 @@ public class BluiCli {
             stateMap.put(a.name(), state);
         }
 
+        boolean isInteractive = (System.console() != null && System.console().isTerminal())
+                || "true".equalsIgnoreCase(System.getProperty("blui.interactive"))
+                || "true".equalsIgnoreCase(System.getenv("BLUI_INTERACTIVE"));
         char[] spinnerFrames = {'⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'};
 
-        // Print initial lines
-        for (AgentUIState s : uiStates) {
-            writeUtf8("  " + CYAN + spinnerFrames[0] + RESET + " " + BOLD + "[" + padRight(s.agent.name(), 20) + "]" + RESET + " " + padRight(s.agent.role(), 34) + " " + DIM + "(0.00s)" + RESET + "\n");
+        if (isInteractive) {
+            // Print initial lines for animated terminal display
+            for (AgentUIState s : uiStates) {
+                writeUtf8("  " + CYAN + spinnerFrames[0] + RESET + " " + BOLD + "[" + padRight(s.agent.name(), 20) + "]" + RESET + " " + padRight(s.agent.role(), 34) + " " + DIM + "(0.00s)" + RESET + "\n");
+            }
         }
 
-        AtomicBoolean animating = new AtomicBoolean(true);
+        AtomicBoolean animating = new AtomicBoolean(isInteractive);
         long t0 = System.currentTimeMillis();
 
-        Thread animator = Thread.ofVirtual().start(() -> {
+        Thread animator = isInteractive ? Thread.ofVirtual().start(() -> {
             int frame = 1;
             while (animating.get()) {
                 try {
@@ -1038,7 +1063,7 @@ public class BluiCli {
                 writeUtf8(sb.toString());
                 frame++;
             }
-        });
+        }) : null;
 
         SwarmEngine.SwarmListener listener = new SwarmEngine.SwarmListener() {
             @Override
@@ -1057,6 +1082,14 @@ public class BluiCli {
                     s.durationMs.set(result.durationMs());
                     s.status.set(result.success() ? 2 : 3);
                 }
+                if (!isInteractive) {
+                    double elapsed = result.durationMs() / 1000.0;
+                    if (result.success()) {
+                        writelnUtf8("  " + GREEN + "✓" + RESET + " " + BOLD + "[" + padRight(agent.name(), 20) + "]" + RESET + " " + padRight(agent.role(), 34) + " " + GREEN + String.format(Locale.US, "PASSED (%.2fs)", elapsed) + RESET);
+                    } else {
+                        writelnUtf8("  " + RED + "✗" + RESET + " " + BOLD + "[" + padRight(agent.name(), 20) + "]" + RESET + " " + padRight(agent.role(), 34) + " " + RED + "HALTED" + RESET);
+                    }
+                }
             }
 
             @Override
@@ -1066,6 +1099,9 @@ public class BluiCli {
                     s.durationMs.set(System.currentTimeMillis() - s.startMs.get());
                     s.status.set(3);
                 }
+                if (!isInteractive) {
+                    writelnUtf8("  " + RED + "✗" + RESET + " " + BOLD + "[" + padRight(agent.name(), 20) + "]" + RESET + " " + padRight(agent.role(), 34) + " " + RED + "HALTED" + RESET);
+                }
             }
         };
 
@@ -1073,32 +1109,39 @@ public class BluiCli {
         try {
             report = engine.runSwarm(task, agents, listener);
         } finally {
-            animating.set(false);
-            animator.interrupt();
-            try { animator.join(200); } catch (InterruptedException ignored) {}
-        }
-
-        // Cleanly settle all agent lines to final state
-        StringBuilder finalSb = new StringBuilder();
-        finalSb.append("\033[").append(agentCount).append("A");
-        for (int i = 0; i < agentCount; i++) {
-            AgentUIState s = uiStates.get(i);
-            int st = s.status.get();
-            double elapsed = s.durationMs.get() / 1000.0;
-            finalSb.append("\r\033[K");
-            if (st == 2 || (st != 3 && !report.governorTripped())) {
-                finalSb.append("  ").append(GREEN).append("✓").append(RESET).append(" ")
-                       .append(BOLD).append("[").append(padRight(s.agent.name(), 20)).append("]").append(RESET).append(" ")
-                       .append(padRight(s.agent.role(), 34)).append(" ")
-                       .append(GREEN).append(String.format(Locale.US, "PASSED (%.2fs)", elapsed)).append(RESET).append("\n");
-            } else {
-                finalSb.append("  ").append(RED).append("✗").append(RESET).append(" ")
-                       .append(BOLD).append("[").append(padRight(s.agent.name(), 20)).append("]").append(RESET).append(" ")
-                       .append(padRight(s.agent.role(), 34)).append(" ")
-                       .append(RED).append("HALTED").append(RESET).append("\n");
+            if (animator != null) {
+                animating.set(false);
+                animator.interrupt();
+                try { animator.join(200); } catch (InterruptedException ignored) {}
             }
         }
-        writeUtf8(finalSb.toString());
+
+        if (isInteractive) {
+            // Cleanly settle all agent lines to final state using authoritative report results
+            StringBuilder finalSb = new StringBuilder();
+            finalSb.append("\033[").append(agentCount).append("A");
+            for (int i = 0; i < agentCount; i++) {
+                AgentUIState s = uiStates.get(i);
+                SwarmResult res = report.results().stream()
+                    .filter(r -> r.agentName().equals(s.agent.name()))
+                    .findFirst().orElse(null);
+                boolean pass = res != null && res.success();
+                double elapsed = (res != null ? res.durationMs() : s.durationMs.get()) / 1000.0;
+                finalSb.append("\r\033[K");
+                if (pass) {
+                    finalSb.append("  ").append(GREEN).append("✓").append(RESET).append(" ")
+                           .append(BOLD).append("[").append(padRight(s.agent.name(), 20)).append("]").append(RESET).append(" ")
+                           .append(padRight(s.agent.role(), 34)).append(" ")
+                           .append(GREEN).append(String.format(Locale.US, "PASSED (%.2fs)", elapsed)).append(RESET).append("\n");
+                } else {
+                    finalSb.append("  ").append(RED).append("✗").append(RESET).append(" ")
+                           .append(BOLD).append("[").append(padRight(s.agent.name(), 20)).append("]").append(RESET).append(" ")
+                           .append(padRight(s.agent.role(), 34)).append(" ")
+                           .append(RED).append("HALTED").append(RESET).append("\n");
+                }
+            }
+            writeUtf8(finalSb.toString());
+        }
         writelnUtf8("");
 
         // Display Executive Swarm Synthesis Box
@@ -1124,7 +1167,7 @@ public class BluiCli {
         int dashCount = boxWidth - 5 - title.length();
         res.add(CYAN + "┌─ " + BOLD + title + RESET + CYAN + " " + "─".repeat(Math.max(0, dashCount)) + "┐" + RESET);
 
-        String targetDesc = report.task().description();
+        String targetDesc = report.task().description().replace("\r", " ").replace("\n", " ").trim();
         String targetLine = "Target:    '" + (targetDesc.length() > inner - 14 ? targetDesc.substring(0, inner - 17) + "..." : targetDesc) + "'";
         res.add(CYAN + "│ " + WHITE + padRight(targetLine, inner) + CYAN + " │" + RESET);
 

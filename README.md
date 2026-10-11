@@ -103,7 +103,7 @@ java -jar blui.jar
 
 #### Option C: Manual Compile & Launch
 ```powershell
-javac -d bin src/blui/core/*.java src/blui/governor/*.java src/blui/loom/*.java src/blui/replay/*.java src/blui/app/*.java src/blui/tools/*.java src/blui/llm/*.java
+javac -d bin src/blui/core/*.java src/blui/governor/*.java src/blui/loom/*.java src/blui/replay/*.java src/blui/swarm/*.java src/blui/app/*.java src/blui/tools/*.java src/blui/llm/*.java
 java -cp bin blui.app.BluiCli
 ```
 
@@ -268,12 +268,12 @@ Every component is written from scratch using pure Java 24 standard library prim
 
 ---
 
-## 🧪 Verification & Testing (28/28 Tests Passing)
+## 🧪 Verification & Testing (30/30 Tests Passing)
 
 Blui includes standalone, zero-dependency verification suites with 100% passing tests:
 
 ```powershell
-# Compile & run full test suite (28/28 tests across 5 suites)
+# Compile & run full test suite (30/30 tests across 5 suites)
 javac -d bin (Get-ChildItem -Recurse -Filter "*.java" src).FullName (Get-ChildItem -Recurse -Filter "*.java" test).FullName
 java -cp bin blui.core.BluiEngineTest
 java -cp bin blui.replay.TraceStoreTest
@@ -324,7 +324,9 @@ Running SwarmEngine verification suite...
   ✓ testParallelExecutionOnVirtualThreadsWithinSla passed
   ✓ testSwarmGovernorBudgetCapEnforcement passed
   ✓ testResultSynthesisAndPersonaRouting passed
-All 4 SwarmEngine tests passed successfully!
+  ✓ testDynamicBudgetTripDuringExecution passed
+  ✓ testBoostPersonasAndMockFindings passed
+All 6 SwarmEngine tests passed successfully!
 ```
 
 ---

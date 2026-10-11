@@ -285,6 +285,21 @@ public class BluiCliTest {
         BluiCli.SwarmOptions opt4 = BluiCli.parseSwarmCommandForTesting("");
         assertCondition(!opt4.goal().isBlank(), "Default goal must be provided for empty input");
 
+        // Bug reproduction: goal containing the word "boost" without flag should NOT activate boost mode
+        BluiCli.SwarmOptions optBoostInGoal = BluiCli.parseSwarmCommandForTesting("swarm \"boost throughput of virtual threads\"");
+        assertCondition(!optBoostInGoal.boost(), "Goal containing word 'boost' without /boost flag must not enable boost mode");
+        assertCondition("boost throughput of virtual threads".equals(optBoostInGoal.goal()), "Goal text should preserve 'boost': " + optBoostInGoal.goal());
+
+        // Combination /boost /goal
+        BluiCli.SwarmOptions optBoth = BluiCli.parseSwarmCommandForTesting("swarm /boost /goal \"audit blui codebase\"");
+        assertCondition(optBoth.boost(), "Boost must be true for /boost /goal");
+        assertCondition("audit blui codebase".equals(optBoth.goal()), "Goal must match: " + optBoth.goal());
+
+        // MinimalJson extractString for non-string key
+        String jsonWithNumber = "{\"key\": 123, \"other\": \"hello\"}";
+        assertCondition(blui.llm.MinimalJson.extractString(jsonWithNumber, "key") == null,
+                "extractString for non-string key must return null but got: " + blui.llm.MinimalJson.extractString(jsonWithNumber, "key"));
+
         System.out.println("  ✓ testSwarmCommandParsing passed");
     }
 
