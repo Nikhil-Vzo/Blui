@@ -8,6 +8,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -53,7 +54,7 @@ public class SwarmEngine {
     private final SwarmGovernor governor;
     private final LlmProvider provider; // null in mock/simulation mode
     private final Duration joinTimeout;
-    private final List<String> telemetryWarnings = Collections.synchronizedList(new ArrayList<>());
+    private final List<String> telemetryWarnings = new CopyOnWriteArrayList<>();
 
     public SwarmEngine(SwarmGovernor governor, Duration joinTimeout) {
         this(governor, null, joinTimeout);
@@ -122,7 +123,7 @@ public class SwarmEngine {
             return new SwarmReport(task, haltedResults, synthesis, governor.usedTokens(), governor.currentCostUsd(), elapsed, true, 0);
         }
 
-        List<SwarmResult> results = Collections.synchronizedList(new ArrayList<>());
+        List<SwarmResult> results = new CopyOnWriteArrayList<>();
         List<Future<SwarmResult>> futures = Collections.synchronizedList(new ArrayList<>());
 
         // Use Project Loom virtual-thread executor powered by Thread.ofVirtual()
