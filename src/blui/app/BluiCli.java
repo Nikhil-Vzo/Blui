@@ -587,8 +587,9 @@ public class BluiCli {
                         double elapsed = (System.currentTimeMillis() - t0) / 1000.0;
                         writeUtf8("\r\033[K" + WHITE + BOLD + "  Step " + currentStep + " " + RESET
                                 + AMBER + "[Thinking] " + RESET
-                                + CYAN + "📡 " + frames[i++ % frames.length] + RESET
-                                + " Calling API " + GRAY + provider.modelName() + RESET
+                                + CYAN + frames[i++ % frames.length] + RESET
+                                + " " + CYAN + "⇋ [API]" + RESET
+                                + " Querying " + GRAY + provider.modelName() + RESET
                                 + DIM + String.format(Locale.US, " (%.1fs)...", elapsed) + RESET);
                         try {
                             Thread.sleep(80);
@@ -612,7 +613,7 @@ public class BluiCli {
                 double stepElapsed = (System.currentTimeMillis() - t0) / 1000.0;
                 writeUtf8("\r\033[K" + WHITE + BOLD + "  Step " + currentStep + " " + RESET
                         + AMBER + "[Thinking] " + RESET
-                        + CYAN + "📡 [API Call]" + RESET
+                        + CYAN + "⇋ [API]" + RESET
                         + " Queried " + GRAY + provider.modelName() + RESET
                         + DIM + String.format(Locale.US, " (%.1fs)", stepElapsed) + RESET + "\n");
 
@@ -727,20 +728,20 @@ public class BluiCli {
 
     public static ToolBadge resolveToolBadge(String toolName, String toolInput) {
         if (toolName == null) {
-            return new ToolBadge("⚙", "[Shell]", CYAN);
+            return new ToolBadge("›", "[SHELL]", CYAN);
         }
         String lower = toolName.toLowerCase(Locale.ROOT);
         if (lower.contains("http") || lower.contains("web") || lower.contains("fetch") || lower.contains("api") || lower.contains("curl")) {
             String inputTrim = toolInput != null ? toolInput.trim().toUpperCase(Locale.ROOT) : "";
             if (inputTrim.startsWith("POST") || inputTrim.startsWith("PUT") || inputTrim.startsWith("PATCH") || inputTrim.startsWith("DELETE")) {
-                return new ToolBadge("📡", "[API Call]", CYAN);
+                return new ToolBadge("⇋", "[API]", CYAN);
             } else {
-                return new ToolBadge("🌐", "[Web Fetch]", BLUE);
+                return new ToolBadge("↗", "[HTTP]", BLUE);
             }
         } else if (lower.contains("file")) {
-            return new ToolBadge("📁", "[Filesystem]", GREEN);
+            return new ToolBadge("≡", "[FILE]", GREEN);
         } else {
-            return new ToolBadge("⚙", "[Shell]", AMBER);
+            return new ToolBadge("›", "[SHELL]", AMBER);
         }
     }
 
@@ -1170,7 +1171,7 @@ public class BluiCli {
             } else {
                 pType = "Ollama";
             }
-            writelnUtf8(GRAY + "→ Provider:  " + CYAN + "📡 " + provider.modelName() + GRAY + " (" + pType + ")" + RESET);
+            writelnUtf8(GRAY + "→ Provider:  " + CYAN + "⇋ " + provider.modelName() + GRAY + " (" + pType + ")" + RESET);
             writelnUtf8("");
         } else {
             writelnUtf8(AMBER + "→ Notice:    No live LLM provider configured (.env). Running in local benchmark simulation mode." + RESET);
@@ -1187,7 +1188,7 @@ public class BluiCli {
                 while (synthesizing.get()) {
                     double el = (System.currentTimeMillis() - st0) / 1000.0;
                     writeUtf8("\r  " + CYAN + frames[f++ % frames.length] + RESET
-                            + " " + CYAN + BOLD + "📡 [API Call]" + RESET
+                            + " " + CYAN + BOLD + "⇋ [API]" + RESET
                             + " Decomposing goal via " + GRAY + provider.modelName() + RESET
                             + DIM + String.format(Locale.US, " (%.1fs)...", el) + RESET);
                     try {
@@ -1206,7 +1207,7 @@ public class BluiCli {
             }
             double synthElapsed = (System.currentTimeMillis() - st0) / 1000.0;
             writeUtf8("\r\033[K  " + GREEN + "✓" + RESET
-                    + " " + CYAN + BOLD + "📡 [API Call]" + RESET
+                    + " " + CYAN + BOLD + "⇋ [API]" + RESET
                     + " Bespoke personas synthesized via " + GRAY + provider.modelName() + RESET
                     + DIM + String.format(Locale.US, " (%.1fs)", synthElapsed) + RESET + "\n\n");
         } else {
@@ -1247,7 +1248,7 @@ public class BluiCli {
                 double elapsed = (System.currentTimeMillis() - t0) / 1000.0;
                 char icon = spinnerFrames[frame % spinnerFrames.length];
                 int active = Math.max(0, agentCount - completedAgents.size());
-                String apiBadge = provider != null ? CYAN + "📡 [API Stream] " + RESET : GRAY + "⚡ [Local Sim] " + RESET;
+                String apiBadge = provider != null ? CYAN + "⇋ [API Stream] " + RESET : GRAY + "⚡ [Local Sim] " + RESET;
                 String msg = String.format(Locale.US, "\r  %s%c%s %s%s%d/%d specialist auditors running%s %s(%.1fs)%s   ",
                     CYAN, icon, RESET,
                     apiBadge,
@@ -1269,12 +1270,11 @@ public class BluiCli {
                 if (!completedAgents.add(agent.name())) return;
                 double elapsed = result.durationMs() / 1000.0;
                 writeUtf8("\r" + " ".repeat(80) + "\r");
-                String apiIcon = (provider != null) ? CYAN + "📡 " + RESET : "";
                 if (result.success()) {
-                    writelnUtf8("  " + GREEN + "✓" + RESET + " " + apiIcon + WHITE + BOLD + padRight(agent.name(), 22) + RESET
+                    writelnUtf8("  " + GREEN + "✓" + RESET + " " + WHITE + BOLD + padRight(agent.name(), 22) + RESET
                             + GRAY + "— " + padRight(agent.role(), 36) + " " + GREEN + String.format(Locale.US, "PASSED (%.2fs)", elapsed) + RESET);
                 } else {
-                    writelnUtf8("  " + RED + "✗" + RESET + " " + apiIcon + WHITE + BOLD + padRight(agent.name(), 22) + RESET
+                    writelnUtf8("  " + RED + "✗" + RESET + " " + WHITE + BOLD + padRight(agent.name(), 22) + RESET
                             + GRAY + "— " + padRight(agent.role(), 36) + " " + RED + "HALTED" + RESET);
                 }
             }
@@ -1283,8 +1283,7 @@ public class BluiCli {
             public void onAgentFailed(SwarmAgent agent, Throwable error) {
                 if (!completedAgents.add(agent.name())) return;
                 writeUtf8("\r" + " ".repeat(80) + "\r");
-                String apiIcon = (provider != null) ? CYAN + "📡 " + RESET : "";
-                writelnUtf8("  " + RED + "✗" + RESET + " " + apiIcon + WHITE + BOLD + padRight(agent.name(), 22) + RESET
+                writelnUtf8("  " + RED + "✗" + RESET + " " + WHITE + BOLD + padRight(agent.name(), 22) + RESET
                         + GRAY + "— " + padRight(agent.role(), 36) + " " + RED + "HALTED" + RESET);
             }
         };

@@ -553,23 +553,23 @@ public class BluiCliTest {
     private static void testToolBadgeAndIconResolution() {
         // 1. Web Fetch (HTTP GET)
         BluiCli.ToolBadge b1 = BluiCli.resolveToolBadge("HttpTool", "get https://news.ycombinator.com");
-        assertCondition("🌐".equals(b1.icon()), "Web fetch icon must be 🌐");
-        assertCondition(b1.label().contains("Web Fetch"), "Web fetch label must contain 'Web Fetch'");
+        assertCondition("↗".equals(b1.icon()), "HTTP fetch icon must be ↗");
+        assertCondition(b1.label().contains("HTTP"), "HTTP label must contain 'HTTP'");
 
         // 2. API Call (HTTP POST / PUT / DELETE)
         BluiCli.ToolBadge b2 = BluiCli.resolveToolBadge("HttpTool", "post https://api.github.com/repos {\"name\":\"test\"}");
-        assertCondition("📡".equals(b2.icon()), "API call icon must be 📡");
-        assertCondition(b2.label().contains("API Call"), "API call label must contain 'API Call'");
+        assertCondition("⇋".equals(b2.icon()), "API call icon must be ⇋");
+        assertCondition(b2.label().contains("API"), "API label must contain 'API'");
 
         // 3. Filesystem Tool
         BluiCli.ToolBadge b3 = BluiCli.resolveToolBadge("FileTool", "read src/blui/core/BluiEngine.java");
-        assertCondition("📁".equals(b3.icon()), "Filesystem icon must be 📁");
-        assertCondition(b3.label().contains("Filesystem"), "Filesystem label must contain 'Filesystem'");
+        assertCondition("≡".equals(b3.icon()), "Filesystem icon must be ≡");
+        assertCondition(b3.label().contains("FILE"), "Filesystem label must contain 'FILE'");
 
         // 4. Shell Subprocess Tool
         BluiCli.ToolBadge b4 = BluiCli.resolveToolBadge("ShellTool", "git status");
-        assertCondition("⚙".equals(b4.icon()), "Shell icon must be ⚙");
-        assertCondition(b4.label().contains("Shell"), "Shell label must contain 'Shell'");
+        assertCondition("›".equals(b4.icon()), "Shell icon must be ›");
+        assertCondition(b4.label().contains("SHELL"), "Shell label must contain 'SHELL'");
 
         System.out.println("  ✓ testToolBadgeAndIconResolution passed");
     }
