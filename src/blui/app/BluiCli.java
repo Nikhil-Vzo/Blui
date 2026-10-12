@@ -1490,7 +1490,7 @@ public class BluiCli {
         // Strip bold markers: **Text** -> Text
         s = s.replaceAll("\\*\\*(.*?)\\*\\*", "$1");
         // Convert markdown pipe table rows to clean readable bullet
-        if (s.startsWith("|") && s.endsWith("|")) {
+        if (s.length() >= 2 && s.startsWith("|") && s.endsWith("|")) {
             String[] cells = s.substring(1, s.length() - 1).split("\\|");
             List<String> validCells = new ArrayList<>();
             for (String c : cells) {
