@@ -28,8 +28,11 @@ public class BluiEngineTest {
         testStepExecutionTripsBudgetGovernor();
         testCycleDetectorAlternatingPatterns();
         testLoomRunnerGlobalSlaDeadline();
+        testFileToolSymlinkTraversal();
+        testHttpToolSsrfProtection();
+        testShellToolAsyncDrainTimeout();
 
-        System.out.println("All 8 BluiEngine tests passed successfully!");
+        System.out.println("All 11 BluiEngine tests passed successfully!");
     }
 
     private static void testSuccessfulGoalCompletion() {
@@ -179,6 +182,102 @@ public class BluiEngineTest {
         assertCondition(!results.get(0).isSuccess() && results.get(0).output().contains("timed out"), "First result must time out");
         assertCondition(!results.get(1).isSuccess() && results.get(1).output().contains("timed out"), "Second result must time out");
         System.out.println("  ✓ testLoomRunnerGlobalSlaDeadline passed");
+    }
+
+    private static void testFileToolSymlinkTraversal() {
+        try {
+            java.nio.file.Path tempRoot = java.nio.file.Files.createTempDirectory("blui_filetool_test_");
+            java.nio.file.Path secretDir = java.nio.file.Files.createTempDirectory("blui_secret_");
+            try {
+                java.nio.file.Path secretFile = secretDir.resolve("secret.txt");
+                java.nio.file.Files.writeString(secretFile, "TOP_SECRET_CREDENTIALS");
+
+                blui.tools.FileTool tool = new blui.tools.FileTool(tempRoot);
+
+                // 1. Upward path traversal
+                blui.core.ToolResults upRes = tool.execute("read ../../outside.txt");
+                assertCondition(!upRes.isSuccess() && upRes.output().contains("Security Violation"),
+                        "FileTool must block ../ traversal");
+
+                // 2. Symlink escape (if platform supports symlinks)
+                try {
+                    java.nio.file.Path symlinkPath = tempRoot.resolve("symlink_escape");
+                    java.nio.file.Files.createSymbolicLink(symlinkPath, secretFile);
+                    blui.core.ToolResults linkRes = tool.execute("read symlink_escape");
+                    assertCondition(!linkRes.isSuccess() && linkRes.output().contains("Security Violation"),
+                            "FileTool must block symlink escape");
+                } catch (UnsupportedOperationException | java.io.IOException e) {
+                    // Symlinks may require elevated privileges on some Windows configurations
+                }
+
+                // 3. Normal safe read/write inside workspace
+                blui.core.ToolResults writeRes = tool.execute("write safe.txt hello_world");
+                assertCondition(writeRes.isSuccess(), "Writing safe file must succeed");
+                blui.core.ToolResults readRes = tool.execute("read safe.txt");
+                assertCondition(readRes.isSuccess() && "hello_world".equals(readRes.output()), "Reading safe file must succeed");
+
+                System.out.println("  ✓ testFileToolSymlinkTraversal passed");
+            } finally {
+                cleanDir(tempRoot);
+                cleanDir(secretDir);
+            }
+        } catch (java.io.IOException e) {
+            throw new RuntimeException("Failed to run testFileToolSymlinkTraversal", e);
+        }
+    }
+
+    private static void testHttpToolSsrfProtection() {
+        blui.tools.HttpTool tool = new blui.tools.HttpTool(Duration.ofSeconds(1));
+
+        // 1. Loopback blocking
+        blui.core.ToolResults r1 = tool.execute("get http://127.0.0.1:8080/admin");
+        assertCondition(!r1.isSuccess() && r1.output().contains("Security Violation"), "Must block 127.0.0.1");
+
+        blui.core.ToolResults r2 = tool.execute("get http://localhost/metrics");
+        assertCondition(!r2.isSuccess() && r2.output().contains("Security Violation"), "Must block localhost");
+
+        // 2. Cloud metadata IP blocking
+        blui.core.ToolResults r3 = tool.execute("get http://169.254.169.254/latest/meta-data/");
+        assertCondition(!r3.isSuccess() && r3.output().contains("Security Violation"), "Must block AWS/GCP metadata IP 169.254.169.254");
+
+        // 3. Private IP 10.0.0.0/8 and 192.168.0.0/16
+        blui.core.ToolResults r4 = tool.execute("get http://10.0.0.1/");
+        assertCondition(!r4.isSuccess() && r4.output().contains("Security Violation"), "Must block 10.0.0.1 private IP");
+
+        blui.core.ToolResults r5 = tool.execute("get http://192.168.1.1/router");
+        assertCondition(!r5.isSuccess() && r5.output().contains("Security Violation"), "Must block 192.168.1.1 private IP");
+
+        System.out.println("  ✓ testHttpToolSsrfProtection passed");
+    }
+
+    private static void testShellToolAsyncDrainTimeout() {
+        blui.tools.ShellTool tool = new blui.tools.ShellTool(Duration.ofMillis(300));
+        long start = System.currentTimeMillis();
+
+        // Run infinite output loop or sleep that would deadlock if drained synchronously before wait
+        String isWindows = System.getProperty("os.name", "").toLowerCase();
+        String cmd = isWindows.contains("win")
+                ? "powershell -Command \"while ($true) { Write-Output 'flood' }\""
+                : "yes flood";
+
+        blui.core.ToolResults res = tool.execute(cmd);
+        long elapsed = System.currentTimeMillis() - start;
+
+        assertCondition(!res.isSuccess(), "Infinite output process must not succeed");
+        assertCondition(res.output().contains("timed out"), "Output must report command timed out: " + res.output());
+        assertCondition(elapsed < 3000, "Timeout must cleanly terminate runaway process within reasonable grace period: elapsed=" + elapsed);
+
+        System.out.println("  ✓ testShellToolAsyncDrainTimeout passed");
+    }
+
+    private static void cleanDir(java.nio.file.Path dir) {
+        if (!java.nio.file.Files.exists(dir)) return;
+        try (var stream = java.nio.file.Files.walk(dir)) {
+            stream.sorted(java.util.Comparator.reverseOrder())
+                  .forEach(p -> {
+                      try { java.nio.file.Files.deleteIfExists(p); } catch (Exception ignored) {}
+                  });
+        } catch (Exception ignored) {}
     }
 
     private static void assertCondition(boolean condition, String message) {
