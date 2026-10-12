@@ -11,6 +11,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.regex.Pattern;
 
 /**
@@ -179,10 +180,19 @@ public record SwarmAgent(
                 new LlmProvider.Message("user", userPrompt)
             );
 
-            LlmProvider.LlmResponse response;
-            try (ExecutorService singleExec = Executors.newSingleThreadExecutor(Thread.ofVirtual().factory())) {
+            LlmProvider.LlmResponse response = null;
+            ExecutorService singleExec = Executors.newSingleThreadExecutor(Thread.ofVirtual().factory());
+            try {
                 Future<LlmProvider.LlmResponse> future = singleExec.submit(() -> provider.generate(conversation));
-                response = future.get(25, TimeUnit.SECONDS);
+                try {
+                    response = future.get(8, TimeUnit.SECONDS);
+                } catch (TimeoutException te) {
+                    future.cancel(true);
+                    singleExec.shutdownNow();
+                    return derivePersonas(goal, isBoost);
+                }
+            } finally {
+                singleExec.shutdownNow();
             }
 
             if (response == null || response.content() == null || response.content().isBlank()) {
