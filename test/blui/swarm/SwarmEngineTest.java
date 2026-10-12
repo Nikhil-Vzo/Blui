@@ -25,8 +25,10 @@ public class SwarmEngineTest {
         testGracefulOfflineSimFallbackOnProviderFailure();
         testNoCascadeCancelOnProviderError();
         testLlmProviderMockForcesSimulation();
+        testWordBoundaryDomainClassification();
+        testTargetScopePathResolution();
 
-        System.out.println("All 11 SwarmEngine tests passed successfully!");
+        System.out.println("All 13 SwarmEngine tests passed successfully!");
     }
 
     private static void testAmbiguousGoalRejection() {
@@ -38,6 +40,9 @@ public class SwarmEngineTest {
         assertCondition(SwarmEngine.isAmbiguousGoal("   "), "Whitespace string must be ambiguous");
         assertCondition(SwarmEngine.isAmbiguousGoal(null), "Null must be ambiguous");
         assertCondition(SwarmEngine.isAmbiguousGoal("help"), "'help' token must be ambiguous");
+        assertCondition(SwarmEngine.isAmbiguousGoal("help!"), "'help!' with trailing exclamation must be ambiguous");
+        assertCondition(SwarmEngine.isAmbiguousGoal("what?"), "'what?' with trailing question mark must be ambiguous");
+        assertCondition(SwarmEngine.isAmbiguousGoal("why?!"), "'why?!' with multiple trailing punctuation must be ambiguous");
         assertCondition(!SwarmEngine.isAmbiguousGoal("audit ./src"), "'audit ./src' must not be ambiguous");
         assertCondition(!SwarmEngine.isAmbiguousGoal("design distributed rate limiter"), "'design distributed rate limiter' must not be ambiguous");
 
@@ -321,6 +326,46 @@ public class SwarmEngineTest {
         assertCondition(synthesis.contains("GovernorVerifier"), "Synthesis should reference GovernorVerifier");
 
         System.out.println("  ✓ testResultSynthesisAndPersonaRouting passed");
+    }
+
+    private static void testWordBoundaryDomainClassification() {
+        // "build the project" should NOT classify as FRONTEND (due to "ui")
+        SwarmAgent.GoalDomain dBuild = SwarmAgent.classifyGoal("build the project");
+        assertCondition(dBuild != SwarmAgent.GoalDomain.FRONTEND, "'build the project' must not be classified as FRONTEND");
+
+        // "audit blui codebase" should be CODE_AUDIT, not FRONTEND
+        SwarmAgent.GoalDomain dBlui = SwarmAgent.classifyGoal("audit blui codebase");
+        assertCondition(dBlui == SwarmAgent.GoalDomain.CODE_AUDIT, "'audit blui codebase' must be CODE_AUDIT, got: " + dBlui);
+
+        // "random domain model" should NOT classify as FRONTEND (due to "dom")
+        SwarmAgent.GoalDomain dDom = SwarmAgent.classifyGoal("random domain model");
+        assertCondition(dDom != SwarmAgent.GoalDomain.FRONTEND, "'random domain model' must not be FRONTEND");
+
+        // "token bucket rate limiter" should classify as SYSTEM_DESIGN, not SECURITY
+        SwarmAgent.GoalDomain dTokenBucket = SwarmAgent.classifyGoal("token bucket rate limiter");
+        assertCondition(dTokenBucket == SwarmAgent.GoalDomain.SYSTEM_DESIGN, "'token bucket rate limiter' must be SYSTEM_DESIGN, got: " + dTokenBucket);
+
+        // "review auth tokens" should be SECURITY
+        SwarmAgent.GoalDomain dSec = SwarmAgent.classifyGoal("review auth tokens");
+        assertCondition(dSec == SwarmAgent.GoalDomain.SECURITY, "'review auth tokens' must be SECURITY");
+
+        // "build responsive UI components" should be FRONTEND
+        SwarmAgent.GoalDomain dUi = SwarmAgent.classifyGoal("build responsive UI components");
+        assertCondition(dUi == SwarmAgent.GoalDomain.FRONTEND, "'build responsive UI components' must be FRONTEND");
+
+        System.out.println("  ✓ testWordBoundaryDomainClassification passed");
+    }
+
+    private static void testTargetScopePathResolution() {
+        // Goal specifying "./test" must resolve target scope targeting test directory
+        String testScope = SwarmTask.resolveTargetScope("audit ./test");
+        assertCondition(testScope.contains("Codebase Inventory under ./test"), "Target scope must inventory ./test directory when specified in goal: " + testScope);
+
+        // Default goal with no explicit path resolves ./src
+        String defaultScope = SwarmTask.resolveTargetScope("review architecture");
+        assertCondition(defaultScope.contains("Codebase Inventory under ./src"), "Default target scope must inventory ./src");
+
+        System.out.println("  ✓ testTargetScopePathResolution passed");
     }
 
     private static void assertCondition(boolean condition, String message) {

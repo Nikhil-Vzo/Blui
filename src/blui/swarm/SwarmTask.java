@@ -30,19 +30,47 @@ public record SwarmTask(
         StringBuilder sb = new StringBuilder();
         sb.append("Pure Java 24 Runtime (OpenJDK 24, Zero Dependencies, Windows/POSIX).");
         try {
-            Path src = Path.of("src");
-            if (Files.exists(src) && Files.isDirectory(src)) {
-                try (Stream<Path> stream = Files.walk(src)) {
-                    List<String> javaFiles = stream
-                        .filter(Files::isRegularFile)
-                        .map(p -> src.relativize(p).toString().replace('\\', '/'))
-                        .filter(s -> s.endsWith(".java"))
-                        .sorted()
-                        .toList();
-                    if (!javaFiles.isEmpty()) {
-                        sb.append("\nCodebase Inventory under ./src (").append(javaFiles.size()).append(" Java 24 files):\n");
-                        sb.append(String.join(", ", javaFiles));
+            Path targetPath = null;
+            if (goal != null) {
+                var pattern = java.util.regex.Pattern.compile("(?:\\.{1,2}[/\\\\]|[a-zA-Z0-9_.-]+[/\\\\])[a-zA-Z0-9_.-]+|(?:\\./|\\.\\./|src|test|bin)[a-zA-Z0-9_./\\\\-]*");
+                var matcher = pattern.matcher(goal);
+                while (matcher.find()) {
+                    String candidate = matcher.group().trim().replaceAll("^['\"]|['\"]$", "");
+                    try {
+                        Path p = Path.of(candidate);
+                        if (Files.exists(p) && !candidate.equals(".") && !candidate.equals("..")) {
+                            targetPath = p;
+                            break;
+                        }
+                    } catch (Exception ignored) {}
+                }
+            }
+
+            if (targetPath == null) {
+                targetPath = Path.of("src");
+            }
+
+            if (Files.exists(targetPath)) {
+                if (Files.isDirectory(targetPath)) {
+                    final Path baseDir = targetPath;
+                    try (Stream<Path> stream = Files.walk(baseDir)) {
+                        List<String> javaFiles = stream
+                            .filter(Files::isRegularFile)
+                            .map(p -> baseDir.relativize(p).toString().replace('\\', '/'))
+                            .filter(s -> s.endsWith(".java"))
+                            .sorted()
+                            .toList();
+                        String displayPath = targetPath.toString().replace('\\', '/');
+                        if (!displayPath.startsWith("./")) displayPath = "./" + displayPath;
+                        if (!javaFiles.isEmpty()) {
+                            sb.append("\nCodebase Inventory under ").append(displayPath).append(" (").append(javaFiles.size()).append(" Java 24 files):\n");
+                            sb.append(String.join(", ", javaFiles));
+                        }
                     }
+                } else if (Files.isRegularFile(targetPath)) {
+                    String displayPath = targetPath.toString().replace('\\', '/');
+                    if (!displayPath.startsWith("./")) displayPath = "./" + displayPath;
+                    sb.append("\nTarget File: ").append(displayPath).append(" (").append(Files.size(targetPath)).append(" bytes)");
                 }
             }
         } catch (Exception ignored) {}

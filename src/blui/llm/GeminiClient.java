@@ -69,8 +69,9 @@ public final class GeminiClient implements LlmProvider {
 
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
 
-        // Auto-fallback if the primary model is deprecated or overloaded
-        if (response.statusCode() != 200 && !model.equals(FALLBACK_MODEL)) {
+        // Auto-fallback if the primary model is deprecated or overloaded, BUT NOT on 401 (auth) or 429 (quota)
+        int initialStatus = response.statusCode();
+        if (initialStatus != 200 && initialStatus != 401 && initialStatus != 429 && !model.equals(FALLBACK_MODEL)) {
             String fallbackEndpoint = BASE_URL + FALLBACK_MODEL + ":generateContent?key=" + apiKey;
             HttpRequest fallbackRequest = HttpRequest.newBuilder()
                     .uri(URI.create(fallbackEndpoint))
@@ -84,8 +85,9 @@ public final class GeminiClient implements LlmProvider {
             }
         }
 
-        // Secondary fallback to gemini-3.8-flash for modern Google AI Studio accounts
-        if (response.statusCode() != 200 && !model.equals("gemini-3.8-flash") && !FALLBACK_MODEL.equals("gemini-3.8-flash")) {
+        // Secondary fallback to gemini-3.8-flash for modern Google AI Studio accounts, BUT NOT on 401 or 429
+        int secondStatus = response.statusCode();
+        if (secondStatus != 200 && secondStatus != 401 && secondStatus != 429 && !model.equals("gemini-3.8-flash") && !FALLBACK_MODEL.equals("gemini-3.8-flash")) {
             String fb38Endpoint = BASE_URL + "gemini-3.8-flash:generateContent?key=" + apiKey;
             HttpRequest fb38Request = HttpRequest.newBuilder()
                     .uri(URI.create(fb38Endpoint))
@@ -109,14 +111,15 @@ public final class GeminiClient implements LlmProvider {
         String text = MinimalJson.extractString(responseBody, "text");
         if (text == null) text = "";
 
-        int promptTokens = MinimalJson.extractInt(responseBody, "promptTokenCount", 0);
-        int completionTokens = MinimalJson.extractInt(responseBody, "candidatesTokenCount", 0);
+        String usageBlock = MinimalJson.extractObject(responseBody, "usageMetadata");
+        int promptTokens = MinimalJson.extractInt(usageBlock != null ? usageBlock : responseBody, "promptTokenCount", 0);
+        int completionTokens = MinimalJson.extractInt(usageBlock != null ? usageBlock : responseBody, "candidatesTokenCount", 0);
 
         // Detect tool invocation (Format: TOOL: <Name>\nINPUT: <Input>)
         String toolName = null;
         String toolInput = null;
 
-        Pattern toolPattern = Pattern.compile("(?m)^TOOL:\\s*([A-Za-z0-9_]+)\\s*$\\s*^INPUT:\\s*(.*?)$", Pattern.DOTALL);
+        Pattern toolPattern = Pattern.compile("(?:^|\\R|\\s)TOOL:\\s*([A-Za-z0-9_]+)\\s*(?:\\R|\\s+)INPUT:\\s*([\\s\\S]*?)(?=(?:\\R|\\s+)TOOL:|\\z)");
         Matcher matcher = toolPattern.matcher(text);
         if (matcher.find()) {
             toolName = matcher.group(1).trim();

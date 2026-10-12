@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.regex.Pattern;
 
 /**
  * Persona definition for specialized autonomous agents participating in a swarm.
@@ -37,20 +38,26 @@ public record SwarmAgent(
         String clean = goal.trim().replaceAll("^[\"'`<>]+|[\"'`<>]+$", "").trim();
         if (clean.length() <= 2) return true;
         if (clean.matches("^[\\p{Punct}\\s]+$")) return true;
-        String lower = clean.toLowerCase(Locale.ROOT);
+        String stripped = clean.replaceAll("[\\p{Punct}\\s]+$", "").trim();
+        if (stripped.length() <= 2) return true;
+        String lower = stripped.toLowerCase(Locale.ROOT);
         return lower.equals("help") || lower.equals("undefined") || lower.equals("unknown")
                 || lower.equals("what") || lower.equals("why") || lower.equals("how")
                 || lower.equals("test") || lower.equals("none") || lower.equals("again");
+    }
+
+    private static boolean hasWord(String text, String regexWord) {
+        return Pattern.compile("\\b" + regexWord + "\\b", Pattern.CASE_INSENSITIVE).matcher(text).find();
     }
 
     public static GoalDomain classifyGoal(String goal) {
         if (goal == null) return GoalDomain.GENERAL;
         String lower = goal.toLowerCase(Locale.ROOT);
 
-        // Security keywords
+        // Security keywords (use word boundary for tokens, excluding "token bucket")
         if (lower.contains("secur") || lower.contains("vulnerab") || lower.contains("cve")
                 || lower.contains("exploit") || lower.contains("inject") || lower.contains("auth")
-                || lower.contains("jwt") || lower.contains("token") || lower.contains("secret")
+                || lower.contains("jwt") || (hasWord(lower, "tokens?") && !lower.contains("token bucket")) || lower.contains("secret")
                 || lower.contains("credential") || lower.contains("ssrf") || lower.contains("sandbox")
                 || lower.contains("pentest") || lower.contains("crypto") || lower.contains("encrypt")) {
             return GoalDomain.SECURITY;
@@ -66,20 +73,21 @@ public record SwarmAgent(
 
         // System design & distributed backend keywords
         if (lower.contains("system design") || lower.contains("distribut") || lower.contains("rate limit")
-                || lower.contains("microservice") || lower.contains("consensus") || lower.contains("sharding")
-                || lower.contains("partition") || lower.contains("kafka") || lower.contains("queue")
-                || lower.contains("caching") || lower.contains("redis") || lower.contains("database")
-                || lower.contains("replica") || lower.contains("raft") || lower.contains("load balance")
-                || lower.contains("grpc") || lower.contains("backend") || lower.contains("api design")) {
+                || lower.contains("token bucket") || lower.contains("microservice") || lower.contains("consensus")
+                || lower.contains("sharding") || lower.contains("partition") || lower.contains("kafka")
+                || lower.contains("queue") || lower.contains("caching") || lower.contains("redis")
+                || lower.contains("database") || lower.contains("replica") || lower.contains("raft")
+                || lower.contains("load balance") || lower.contains("grpc") || lower.contains("backend")
+                || lower.contains("api design")) {
             return GoalDomain.SYSTEM_DESIGN;
         }
 
-        // Frontend & UI/UX keywords
-        if (lower.contains("front") || lower.contains("ui") || lower.contains("ux")
-                || lower.contains("landing") || lower.contains("page") || lower.contains("react")
-                || lower.contains("css") || lower.contains("html") || lower.contains("tailwind")
+        // Frontend & UI/UX keywords (word-boundary matches for ui, ux, dom, web, page to prevent collisions with build, blui, domain, random)
+        if (lower.contains("front") || hasWord(lower, "ui") || hasWord(lower, "ux")
+                || lower.contains("landing") || hasWord(lower, "pages?") || lower.contains("react")
+                || hasWord(lower, "css") || hasWord(lower, "html") || lower.contains("tailwind")
                 || lower.contains("responsive") || lower.contains("component") || lower.contains("browser")
-                || lower.contains("dom") || lower.contains("web") || lower.contains("design system")) {
+                || hasWord(lower, "dom") || hasWord(lower, "web") || lower.contains("design system")) {
             return GoalDomain.FRONTEND;
         }
 
@@ -96,7 +104,7 @@ public record SwarmAgent(
                 || lower.contains("refactor") || lower.contains("clean code") || lower.contains("dependenc")
                 || lower.contains("./src") || lower.contains("src/") || lower.contains("package")
                 || lower.contains("governor") || lower.contains("blui") || lower.contains("java")
-                || lower.contains("module") || lower.contains("review")) {
+                || lower.contains("module") || lower.contains("review") || lower.contains("build")) {
             return GoalDomain.CODE_AUDIT;
         }
 

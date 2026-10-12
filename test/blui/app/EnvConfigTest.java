@@ -20,8 +20,9 @@ public class EnvConfigTest {
         testStreamlinedVariableLists();
         testDirectPastedApiKeyAtMenuPrompt();
         testCorruptedOpenRouterModelPurgedAndReset();
+        testExportPrefixStripping();
 
-        System.out.println("All 7 EnvConfig tests passed successfully!");
+        System.out.println("All 8 EnvConfig tests passed successfully!");
     }
 
     private static void testStreamlinedVariableLists() {
@@ -213,6 +214,35 @@ public class EnvConfigTest {
             System.out.println("  ✓ testCorruptedOpenRouterModelPurgedAndReset passed");
         } catch (IOException e) {
             throw new RuntimeException("testCorruptedOpenRouterModelPurgedAndReset failed: " + e.getMessage(), e);
+        }
+    }
+
+    private static void testExportPrefixStripping() {
+        try {
+            Path tempEnv = Files.createTempFile("blui_export_test_", ".env");
+            String content = "export OPENROUTER_API_KEY=sk-or-v1-my-key\n" +
+                             "export GEMINI_MODEL=gemini-3.5-flash\n" +
+                             "OLLAMA_MODEL=llama3.2\n";
+            Files.writeString(tempEnv, content);
+
+            Map<String, String> loaded = EnvConfig.load(tempEnv);
+            assertCondition("sk-or-v1-my-key".equals(loaded.get("OPENROUTER_API_KEY")),
+                    "Key with 'export ' prefix must be stripped and loaded as OPENROUTER_API_KEY: got " + loaded);
+            assertCondition(!loaded.containsKey("export OPENROUTER_API_KEY"),
+                    "Map must not contain raw 'export OPENROUTER_API_KEY'");
+            assertCondition("gemini-3.5-flash".equals(loaded.get("GEMINI_MODEL")),
+                    "Key with 'export ' prefix must be stripped and loaded as GEMINI_MODEL");
+
+            // Test saveVar with export prefix
+            EnvConfig.saveVar(tempEnv, "export CUSTOM_VAR", "test-val");
+            Map<String, String> loaded2 = EnvConfig.load(tempEnv);
+            assertCondition("test-val".equals(loaded2.get("CUSTOM_VAR")),
+                    "saveVar with 'export ' prefix must save as clean CUSTOM_VAR");
+
+            Files.deleteIfExists(tempEnv);
+            System.out.println("  ✓ testExportPrefixStripping passed");
+        } catch (IOException e) {
+            throw new RuntimeException("testExportPrefixStripping failed: " + e.getMessage(), e);
         }
     }
 

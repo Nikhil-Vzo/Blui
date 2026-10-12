@@ -63,6 +63,7 @@ public class BluiEngine {
                 trace.append(StepTrace.of(currentStep++, currentState, 0));
 
                 List<ToolExecution> plannedTools = planner.planNextStep(currentState, trace);
+                governor.inspectStep(currentState);
 
                 // If planner produced no tools, the goal is achieved
                 if (plannedTools.isEmpty()) {
@@ -74,7 +75,6 @@ public class BluiEngine {
                 // 3. Tool execution phase via Virtual Threads
                 List<String> toolNames = plannedTools.stream().map(te -> te.tool().name()).toList();
                 currentState = new AgentState.ExecutingTools(toolNames, currentStep);
-                trace.append(StepTrace.of(currentStep++, currentState, 0));
 
                 // Verify with Governor for cycle detection
                 for (ToolExecution te : plannedTools) {
@@ -83,6 +83,16 @@ public class BluiEngine {
 
                 // Dispatch concurrently across Project Loom Virtual Threads
                 List<ToolResults> results = loomRunner.runConcurrent(plannedTools, toolTimeout);
+
+                int stepTokens = 0;
+                for (int i = 0; i < plannedTools.size(); i++) {
+                    String in = plannedTools.get(i).input();
+                    String out = (i < results.size() && results.get(i).output() != null) ? results.get(i).output() : "";
+                    stepTokens += Math.max(1, (in.length() + out.length()) / 4);
+                }
+                governor.budget().recordUsage(stepTokens);
+                trace.append(StepTrace.of(currentStep++, currentState, stepTokens));
+                governor.inspectStep(currentState);
             }
 
             // Exceeded max steps

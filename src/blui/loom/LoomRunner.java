@@ -34,12 +34,17 @@ public class LoomRunner {
 
             List<ToolResults> results = new ArrayList<>();
             long timeoutMillis = timeout.toMillis();
+            long deadline = System.currentTimeMillis() + timeoutMillis;
 
             for (int i = 0; i < futures.size(); i++) {
                 Future<ToolResults> future = futures.get(i);
                 ToolExecution exec = executions.get(i);
+                long remainingMs = Math.max(1, deadline - System.currentTimeMillis());
                 try {
-                    results.add(future.get(timeoutMillis, TimeUnit.MILLISECONDS));
+                    if (System.currentTimeMillis() >= deadline) {
+                        throw new TimeoutException("Global SLA deadline reached");
+                    }
+                    results.add(future.get(remainingMs, TimeUnit.MILLISECONDS));
                 } catch (TimeoutException e) {
                     future.cancel(true);
                     results.add(new ToolResults(

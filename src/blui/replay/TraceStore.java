@@ -48,7 +48,7 @@ public final class TraceStore {
                 ? traceId
                 : "trace_" + System.currentTimeMillis();
 
-        Path file = storageDir.resolve(safeId + ".json");
+        Path file = resolveSafeTraceFile(safeId);
 
         StringBuilder json = new StringBuilder();
         json.append("{\n");
@@ -120,11 +120,33 @@ public final class TraceStore {
      * Reads the raw JSON ledger of a specific trace from disk.
      */
     public String readTraceJson(String traceId) throws IOException {
-        Path file = storageDir.resolve(traceId + ".json");
+        Path file = resolveSafeTraceFile(traceId);
         if (!Files.exists(file)) {
             throw new IllegalArgumentException("Trace not found: " + traceId);
         }
+        try {
+            Path realFile = file.toRealPath();
+            Path realDir = storageDir.toRealPath();
+            if (!realFile.startsWith(realDir)) {
+                throw new SecurityException("Path traversal blocked: trace file resolves outside storageDir: " + traceId);
+            }
+        } catch (IOException ignored) {}
         return Files.readString(file);
+    }
+
+    private Path resolveSafeTraceFile(String traceId) {
+        if (traceId == null || traceId.isBlank()) {
+            throw new IllegalArgumentException("traceId cannot be null or blank");
+        }
+        if (!traceId.matches("^[a-zA-Z0-9_-]+$")) {
+            throw new IllegalArgumentException("Invalid traceId: only alphanumeric characters, underscores, and hyphens are permitted: " + traceId);
+        }
+        Path normalizedDir = storageDir.toAbsolutePath().normalize();
+        Path file = normalizedDir.resolve(traceId + ".json").normalize();
+        if (!file.startsWith(normalizedDir)) {
+            throw new SecurityException("Path traversal blocked: traceId escapes storageDir: " + traceId);
+        }
+        return file;
     }
 
     public Path getStorageDir() {

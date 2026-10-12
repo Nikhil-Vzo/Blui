@@ -45,7 +45,10 @@ public class SwarmGovernor {
         if (tokens < 0) {
             throw new IllegalArgumentException("tokens cannot be negative");
         }
-        int total = this.usedTokens.addAndGet(tokens);
+        int total = this.usedTokens.updateAndGet(prev -> {
+            long sum = (long) prev + tokens;
+            return sum > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) sum;
+        });
         double cost = total * costPerTokenUsd;
         if (total >= maxTokens || cost >= maxCostUsd) {
             tripped.set(true);

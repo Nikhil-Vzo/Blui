@@ -26,7 +26,10 @@ public class Budget {
         {
             throw new IllegalArgumentException("tokens used cannot be negative");
         }
-        this.usedTokens.addAndGet(tokens);
+        this.usedTokens.updateAndGet(prev -> {
+            long sum = (long) prev + tokens;
+            return sum > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) sum;
+        });
     }
 
     public int usedTokens()

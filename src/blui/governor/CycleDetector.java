@@ -26,30 +26,42 @@ public class CycleDetector
     {
         if (toolName == null || input == null)
         {
-	throw new IllegalArgumentException("toolName and input cannot be null");
+            throw new IllegalArgumentException("toolName and input cannot be null");
         }
-    callHistory.add(toolName + "::"+ input);
+        String normalizedTool = toolName.strip();
+        String normalizedInput = input.strip().replaceAll("\\s+", " ");
+        callHistory.add(normalizedTool + "::" + normalizedInput);
     }
 
-/** chekcs if last tool calls are identical */
-
-public boolean isLoopDetected()
-{
-    if(callHistory.size() < maxRepeats)
+    /** Checks if sliding-window repetition pattern of any period k >= 1 has repeated maxRepeats times */
+    public boolean isLoopDetected()
     {
-    return false;
-    }
-    int lastIndex = callHistory.size() - 1;
-    String latestCall = callHistory.get(lastIndex);
-
-    for (int i =1; i < maxRepeats ;i++)
-    {
-        if (!latestCall.equals(callHistory.get(lastIndex - i))) {
+        synchronized (callHistory) {
+            int n = callHistory.size();
+            if (n < maxRepeats)
+            {
+                return false;
+            }
+            for (int k = 1; k <= n / maxRepeats; k++) {
+                boolean match = true;
+                for (int rep = 1; rep < maxRepeats; rep++) {
+                    for (int offset = 0; offset < k; offset++) {
+                        String current = callHistory.get(n - 1 - offset);
+                        String prev = callHistory.get(n - 1 - (rep * k) - offset);
+                        if (!current.equals(prev)) {
+                            match = false;
+                            break;
+                        }
+                    }
+                    if (!match) break;
+                }
+                if (match) {
+                    return true;
+                }
+            }
             return false;
         }
     }
-    return true;
-}
 
 public List<String> history()
 {

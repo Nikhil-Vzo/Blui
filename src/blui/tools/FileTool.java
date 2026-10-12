@@ -21,7 +21,14 @@ public final class FileTool implements Tool {
         this(Path.of(".").toAbsolutePath().normalize());
     }
     public FileTool(Path workspaceRoot) {
-        this.workspaceRoot = workspaceRoot.toAbsolutePath().normalize();
+        Path abs = workspaceRoot.toAbsolutePath().normalize();
+        Path real;
+        try {
+            real = Files.exists(abs) ? abs.toRealPath() : abs;
+        } catch (IOException e) {
+            real = abs;
+        }
+        this.workspaceRoot = real;
     }
     @Override
     public String name() {
@@ -87,12 +94,35 @@ public final class FileTool implements Tool {
         }
     }
     /**
-     * Resolves the requested relative path and verifies it cannot escape the workspace jail.
+     * Resolves the requested relative path and verifies it cannot escape the workspace jail,
+     * dereferencing real paths to prevent symlink sandbox escapes.
      */
     private Path resolveSafe(String relativePath) {
         Path resolved = workspaceRoot.resolve(relativePath).normalize().toAbsolutePath();
         if (!resolved.startsWith(workspaceRoot)) {
             throw new SecurityException("Path traversal blocked: '" + relativePath + "' escapes workspace root.");
+        }
+        try {
+            if (Files.exists(resolved) || Files.isSymbolicLink(resolved)) {
+                Path realTarget = resolved.toRealPath();
+                if (!realTarget.startsWith(workspaceRoot)) {
+                    throw new SecurityException("Symlink traversal sandbox escape blocked: '" + relativePath + "' resolves outside workspace root.");
+                }
+                return realTarget;
+            } else {
+                Path ancestor = resolved.getParent();
+                while (ancestor != null && !Files.exists(ancestor) && !Files.isSymbolicLink(ancestor)) {
+                    ancestor = ancestor.getParent();
+                }
+                if (ancestor != null) {
+                    Path realAncestor = ancestor.toRealPath();
+                    if (!realAncestor.startsWith(workspaceRoot)) {
+                        throw new SecurityException("Symlink traversal sandbox escape blocked: '" + relativePath + "' resolves outside workspace root.");
+                    }
+                }
+            }
+        } catch (IOException e) {
+            throw new SecurityException("Failed to verify path safety: " + e.getMessage(), e);
         }
         return resolved;
     }

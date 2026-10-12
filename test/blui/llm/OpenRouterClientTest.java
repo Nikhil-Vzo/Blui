@@ -17,8 +17,10 @@ public class OpenRouterClientTest {
         testThinkTagSanitization();
         testTokenUsageExtraction();
         testAccidentalApiKeyAsModelRevertsToDefault();
+        testGeneratedContentMentioningTokensDoesNotPoisonUsage();
+        testMultilineToolInputParsing();
 
-        System.out.println("All 6 OpenRouterClient tests passed successfully!");
+        System.out.println("All 8 OpenRouterClient tests passed successfully!");
     }
 
     private static void testAccidentalApiKeyAsModelRevertsToDefault() {
@@ -148,6 +150,61 @@ public class OpenRouterClientTest {
         assertCondition(res.completionTokens() == 38, "Must extract completion_tokens = 38");
         assertCondition(res.totalTokens() == 180, "Must calculate totalTokens = 180");
         System.out.println("  ✓ testTokenUsageExtraction passed");
+    }
+
+    private static void testGeneratedContentMentioningTokensDoesNotPoisonUsage() {
+        String mockResponse = """
+            {
+              "id": "gen-99999",
+              "choices": [
+                {
+                  "message": {
+                    "role": "assistant",
+                    "content": "Here is an example JSON: {\\\"prompt_tokens\\\": 999999, \\\"completion_tokens\\\": 888888}. TOOL: ShellTool\\nINPUT: echo test"
+                  }
+                }
+              ],
+              "usage": {
+                "prompt_tokens": 55,
+                "completion_tokens": 12,
+                "total_tokens": 67
+              }
+            }
+            """;
+
+        LlmProvider.LlmResponse res = OpenRouterClient.parseResponseForTesting(mockResponse);
+        assertCondition(res.promptTokens() == 55, "Prompt tokens must match usage block (55), not text content: got " + res.promptTokens());
+        assertCondition(res.completionTokens() == 12, "Completion tokens must match usage block (12), not text content: got " + res.completionTokens());
+        assertCondition("ShellTool".equals(res.toolName()), "Must parse tool name ShellTool");
+        assertCondition("echo test".equals(res.toolInput()), "Must parse tool input 'echo test'");
+        System.out.println("  ✓ testGeneratedContentMentioningTokensDoesNotPoisonUsage passed");
+    }
+
+    private static void testMultilineToolInputParsing() {
+        String mockResponse = """
+            {
+              "choices": [
+                {
+                  "message": {
+                    "role": "assistant",
+                    "content": "TOOL: FileTool\\nINPUT: write src/Hello.java\\npublic class Hello {\\n    public static void main(String[] args) {\\n        System.out.println(\\\"Hello\\\");\\n    }\\n}"
+                  }
+                }
+              ],
+              "usage": {
+                "prompt_tokens": 100,
+                "completion_tokens": 50,
+                "total_tokens": 150
+              }
+            }
+            """;
+
+        LlmProvider.LlmResponse res = OpenRouterClient.parseResponseForTesting(mockResponse);
+        assertCondition("FileTool".equals(res.toolName()), "Tool name must be FileTool");
+        assertCondition(res.toolInput() != null, "Tool input must not be null");
+        assertCondition(res.toolInput().contains("public class Hello"), "Tool input must not truncate after first line: " + res.toolInput());
+        assertCondition(res.toolInput().contains("System.out.println"), "Tool input must preserve full multiline body");
+        System.out.println("  ✓ testMultilineToolInputParsing passed");
     }
 
     private static void assertCondition(boolean condition, String message) {

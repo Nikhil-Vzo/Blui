@@ -23,6 +23,7 @@ public class TraceStoreTest {
 
             testSaveAndReadTrace(store);
             testListTraces(store);
+            testPathTraversalSanitization(store);
 
             System.out.println("All TraceStore tests passed successfully!");
         } finally {
@@ -60,6 +61,40 @@ public class TraceStoreTest {
         assertCondition("Test Goal".equals(traces.get(0).goal()), "Trace goal should match 'Test Goal'");
         assertCondition(traces.get(0).stepCount() == 3, "Trace step count should be 3");
         System.out.println("  ✓ testListTraces passed");
+    }
+
+    private static void testPathTraversalSanitization(TraceStore store) {
+        AgentTrace trace = new AgentTrace();
+        trace.append(StepTrace.of(0, new AgentState.Initialized("Evil"), 0));
+
+        // 1. Path traversal in save: reject ../ or slashes
+        boolean saveBlocked = false;
+        try {
+            store.save("../../evil_escape", "Evil", trace);
+        } catch (IllegalArgumentException | SecurityException e) {
+            saveBlocked = true;
+        } catch (Exception ignored) {}
+        assertCondition(saveBlocked, "store.save must reject path traversal traceId");
+
+        // 2. Path traversal in readTraceJson: reject ../ or slashes
+        boolean readBlocked = false;
+        try {
+            store.readTraceJson("../evil_escape");
+        } catch (IllegalArgumentException | SecurityException e) {
+            readBlocked = true;
+        } catch (Exception ignored) {}
+        assertCondition(readBlocked, "store.readTraceJson must reject path traversal traceId");
+
+        // 3. Reject null and blank traceId
+        boolean blankBlocked = false;
+        try {
+            store.readTraceJson("   ");
+        } catch (IllegalArgumentException | SecurityException e) {
+            blankBlocked = true;
+        } catch (Exception ignored) {}
+        assertCondition(blankBlocked, "store.readTraceJson must reject blank traceId");
+
+        System.out.println("  ✓ testPathTraversalSanitization passed");
     }
 
     private static void assertCondition(boolean condition, String message) {

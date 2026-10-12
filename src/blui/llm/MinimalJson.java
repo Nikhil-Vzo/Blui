@@ -99,6 +99,49 @@ public final class MinimalJson {
     }
 
     /**
+     * Extracts a JSON object block for a given key.
+     * Example: extractObject(json, "usage") -> "{\n  \"prompt_tokens\": 10\n}"
+     */
+    public static String extractObject(String json, String key) {
+        if (json == null || key == null) return null;
+        String search = "\"" + key + "\"";
+        int idx = json.indexOf(search);
+        if (idx == -1) return null;
+        int colon = json.indexOf(':', idx + search.length());
+        if (colon == -1) return null;
+        int start = json.indexOf('{', colon);
+        if (start == -1) return null;
+        int depth = 0;
+        boolean inString = false;
+        boolean escaped = false;
+        for (int i = start; i < json.length(); i++) {
+            char c = json.charAt(i);
+            if (escaped) {
+                escaped = false;
+                continue;
+            }
+            if (c == '\\') {
+                escaped = true;
+                continue;
+            }
+            if (c == '"') {
+                inString = !inString;
+                continue;
+            }
+            if (!inString) {
+                if (c == '{') depth++;
+                else if (c == '}') {
+                    depth--;
+                    if (depth == 0) {
+                        return json.substring(start, i + 1);
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
      * Extracts an integer number value for a given key.
      * Example: extractInt(json, "totalTokenCount", 0) -> 60
      */

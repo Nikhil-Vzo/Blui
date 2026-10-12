@@ -150,13 +150,14 @@ public final class OpenRouterClient implements LlmProvider {
 
         content = sanitizeContent(content);
 
-        int promptTokens = MinimalJson.extractInt(responseBody, "prompt_tokens", 0);
-        int completionTokens = MinimalJson.extractInt(responseBody, "completion_tokens", 0);
+        String usageBlock = MinimalJson.extractObject(responseBody, "usage");
+        int promptTokens = MinimalJson.extractInt(usageBlock != null ? usageBlock : responseBody, "prompt_tokens", 0);
+        int completionTokens = MinimalJson.extractInt(usageBlock != null ? usageBlock : responseBody, "completion_tokens", 0);
 
         String toolName = null;
         String toolInput = null;
 
-        Pattern toolPattern = Pattern.compile("(?m)^TOOL:\\s*([A-Za-z0-9_]+)\\s*$\\s*^INPUT:\\s*(.*?)$", Pattern.DOTALL);
+        Pattern toolPattern = Pattern.compile("(?:^|\\R|\\s)TOOL:\\s*([A-Za-z0-9_]+)\\s*(?:\\R|\\s+)INPUT:\\s*([\\s\\S]*?)(?=(?:\\R|\\s+)TOOL:|\\z)");
         Matcher matcher = toolPattern.matcher(content);
         if (matcher.find()) {
             toolName = matcher.group(1).trim();

@@ -302,20 +302,15 @@ public class BluiCli {
             }
         } else if (trimmed.matches("(?i)^(blui|bli|blu)?\\s*(set\\s+env|env)\\s+\\w+\\s*=.*")) {
             handleInlineEnvSet(trimmed);
-        } else if (trimmed.matches("(?i)^(blui|bli|blu)?\\s*(audit|swarm|/swarm|boost|/boost|goal|/goal)(\\s+.*)?$")) {
-            executeSwarm(trimmed, scanner);
         } else if (trimmed.matches("(?i)^(blui|bli|blu)?\\s*run\\s+.*")) {
             String task = trimmed.replaceFirst("(?i)^(blui|bli|blu)?\\s*run\\s+", "");
             executeAgent(task, scanner);
+        } else if (isSwarmInvocation(trimmed)) {
+            executeSwarm(trimmed, scanner);
         } else if (trimmed.matches("(?i)^(blui|bli|blu)\\s+.*")) {
             writelnUtf8(RED + "Unknown command: '" + trimmed + "'. Type 'help' for available commands." + RESET);
         } else if (!trimmed.isEmpty()) {
-            String lower = trimmed.toLowerCase(Locale.ROOT);
-            if (lower.startsWith("audit") || lower.contains("swarm") || lower.startsWith("/audit")) {
-                executeSwarm(trimmed, scanner);
-            } else {
-                executeAgent(trimmed, scanner);
-            }
+            executeAgent(trimmed, scanner);
         }
         return true;
     }
@@ -731,7 +726,12 @@ public class BluiCli {
     }
 
     public static void printTelemetrySummary(int promptTokens, int completionTokens, double costUsd, int steps, long durationMs, String model, String traceId) {
-        List<String> lines = buildTelemetryLines(promptTokens, completionTokens, costUsd, steps, durationMs, model, traceId);
+        int width = System.getenv("COLUMNS") != null ? resolveBoxWidth() : 72;
+        printTelemetrySummary(promptTokens, completionTokens, costUsd, steps, durationMs, model, traceId, width);
+    }
+
+    public static void printTelemetrySummary(int promptTokens, int completionTokens, double costUsd, int steps, long durationMs, String model, String traceId, int boxWidth) {
+        List<String> lines = buildTelemetryLines(promptTokens, completionTokens, costUsd, steps, durationMs, model, traceId, boxWidth);
         for (String line : lines) {
             writelnUtf8(line);
         }
@@ -743,6 +743,11 @@ public class BluiCli {
     }
 
     static List<String> buildTelemetryLines(int promptTokens, int completionTokens, double costUsd, int steps, long durationMs, String model, String traceId) {
+        int width = System.getenv("COLUMNS") != null ? resolveBoxWidth() : 72;
+        return buildTelemetryLines(promptTokens, completionTokens, costUsd, steps, durationMs, model, traceId, width);
+    }
+
+    static List<String> buildTelemetryLines(int promptTokens, int completionTokens, double costUsd, int steps, long durationMs, String model, String traceId, int boxWidth) {
         int totalTokens = promptTokens + completionTokens;
         double seconds = durationMs / 1000.0;
         String costFormatted = String.format(Locale.US, "$%.5f", costUsd);
@@ -764,8 +769,7 @@ public class BluiCli {
             line3 = String.format(Locale.US, "Model:    %s │ Governor: Nominal (Budget OK)", safeModel);
         }
 
-        int boxWidth = 72;
-        int inner = boxWidth - 4; // 68 chars
+        int inner = boxWidth - 4; // 68 chars at 72
 
         List<String> res = new ArrayList<>();
         int dashCount = boxWidth - 1 - "┌─ TELEMETRY ".length();
@@ -787,6 +791,10 @@ public class BluiCli {
 
     static List<String> buildTelemetryLinesForTesting(int promptTokens, int completionTokens, double costUsd, int steps, long durationMs, String model, String traceId) {
         return buildTelemetryLines(promptTokens, completionTokens, costUsd, steps, durationMs, model, traceId);
+    }
+
+    static List<String> buildTelemetryLinesForTesting(int promptTokens, int completionTokens, double costUsd, int steps, long durationMs, String model, String traceId, int boxWidth) {
+        return buildTelemetryLines(promptTokens, completionTokens, costUsd, steps, durationMs, model, traceId, boxWidth);
     }
 
     static String cleanGoalForTesting(String goal) {
@@ -1034,6 +1042,22 @@ public class BluiCli {
 
     static String buildSystemPromptForTesting() {
         return buildSystemPrompt();
+    }
+
+    private static final Pattern SWARM_SLASH_FLAG_PATTERN =
+            Pattern.compile("(?i)(^|\\s)/(?:swarm|audit|boost|turbo|goal)(\\s+|$)");
+
+    static boolean isSwarmInvocation(String input) {
+        if (input == null || input.isBlank()) return false;
+        String trimmed = input.trim();
+        if (trimmed.matches("(?i)^(?:blui|bli|blu)?\\s*(?:audit|swarm)(?:\\s+.*)?$")) {
+            return true;
+        }
+        return SWARM_SLASH_FLAG_PATTERN.matcher(trimmed).find();
+    }
+
+    static boolean isSwarmInvocationForTesting(String input) {
+        return isSwarmInvocation(input);
     }
 
     static record SwarmOptions(String goal, boolean boost) {}

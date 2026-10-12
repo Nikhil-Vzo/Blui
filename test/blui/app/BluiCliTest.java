@@ -32,8 +32,10 @@ public class BluiCliTest {
         testAmbiguousGoalValidationInCli();
         testBliTypoAndSwarmParsing();
         testDynamicSwarmSynthesisBox();
+        testSwarmInvocationRouting();
+        testTelemetryCardDynamicBoxWidth();
 
-        System.out.println("All 18 BluiCli tests passed successfully!");
+        System.out.println("All 20 BluiCli tests passed successfully!");
     }
 
     private static void testCardWidthsAndAlignment() {
@@ -478,6 +480,72 @@ public class BluiCliTest {
         assertCondition(joined.contains("ProtocolDesigner"), "Box must contain ProtocolDesigner");
 
         System.out.println("  ✓ testDynamicSwarmSynthesisBox passed");
+    }
+
+    private static void testSwarmInvocationRouting() {
+        // Natural language queries containing 'swarm' must NOT trigger swarm
+        assertCondition(!BluiCli.isSwarmInvocationForTesting("what is docker swarm?"),
+                "'what is docker swarm?' must NOT be recognized as swarm command");
+        assertCondition(!BluiCli.isSwarmInvocationForTesting("how does a bee swarm communicate?"),
+                "'how does a bee swarm communicate?' must NOT be recognized as swarm command");
+
+        // Bare words 'boost' or 'goal' must NOT trigger swarm
+        assertCondition(!BluiCli.isSwarmInvocationForTesting("boost throughput of database"),
+                "'boost throughput of database' must NOT be recognized as swarm command");
+        assertCondition(!BluiCli.isSwarmInvocationForTesting("goal is to reduce latency"),
+                "'goal is to reduce latency' must NOT be recognized as swarm command");
+        assertCondition(!BluiCli.isSwarmInvocationForTesting("our primary goal is correctness"),
+                "'our primary goal is correctness' must NOT be recognized as swarm command");
+
+        // Explicit swarm / audit commands MUST trigger swarm
+        assertCondition(BluiCli.isSwarmInvocationForTesting("swarm"), "'swarm' must be recognized as swarm command");
+        assertCondition(BluiCli.isSwarmInvocationForTesting("/swarm"), "'/swarm' must be recognized as swarm command");
+        assertCondition(BluiCli.isSwarmInvocationForTesting("swarm audit blui codebase"), "'swarm audit blui codebase' must be swarm command");
+        assertCondition(BluiCli.isSwarmInvocationForTesting("audit ./src"), "'audit ./src' must be swarm command");
+        assertCondition(BluiCli.isSwarmInvocationForTesting("/audit"), "'/audit' must be swarm command");
+        assertCondition(BluiCli.isSwarmInvocationForTesting("blui swarm"), "'blui swarm' must be swarm command");
+        assertCondition(BluiCli.isSwarmInvocationForTesting("blui audit"), "'blui audit' must be swarm command");
+        assertCondition(BluiCli.isSwarmInvocationForTesting("bli swarm"), "'bli swarm' must be swarm command");
+
+        // Slash command flags MUST trigger swarm
+        assertCondition(BluiCli.isSwarmInvocationForTesting("yeah /boost /goal"),
+                "'yeah /boost /goal' must be recognized as swarm command");
+        assertCondition(BluiCli.isSwarmInvocationForTesting("blui /boost 'audit blui codebase'"),
+                "'blui /boost' must be recognized as swarm command");
+        assertCondition(BluiCli.isSwarmInvocationForTesting("/boost 'audit blui codebase'"),
+                "'/boost' must be recognized as swarm command");
+        assertCondition(BluiCli.isSwarmInvocationForTesting("/goal 'audit blui codebase'"),
+                "'/goal' must be recognized as swarm command");
+
+        // Test swarm command parsing for 'yeah /boost /goal'
+        BluiCli.SwarmOptions opt = BluiCli.parseSwarmCommandForTesting("yeah /boost /goal");
+        assertCondition(opt.boost(), "'yeah /boost /goal' must have boost enabled");
+        assertCondition("yeah".equals(opt.goal()), "Parsed goal must be 'yeah' but got: " + opt.goal());
+
+        System.out.println("  ✓ testSwarmInvocationRouting passed");
+    }
+
+    private static void testTelemetryCardDynamicBoxWidth() {
+        int customWidth = 96;
+        List<String> lines = BluiCli.buildTelemetryLinesForTesting(
+                150, 40, 0.0005, 2, 850, "gemini-3.5-flash", "trace_12345", customWidth
+        );
+
+        assertCondition(lines.size() == 5, "Telemetry card must have exactly 5 lines");
+        for (String line : lines) {
+            int visualLen = stripAnsi(line).length();
+            assertCondition(visualLen == customWidth,
+                    "Telemetry line visual length must be " + customWidth + " but got " + visualLen + ": '" + stripAnsi(line) + "'");
+        }
+
+        String joined = String.join("\n", lines);
+        assertCondition(joined.contains("150 in (prompt)"), "Must contain prompt tokens");
+        assertCondition(joined.contains("40 out (completion)"), "Must contain completion tokens");
+        assertCondition(joined.contains("190 total"), "Must contain total tokens");
+        assertCondition(joined.contains("0.85s"), "Must format duration as seconds (0.85s)");
+        assertCondition(joined.contains("Trace: #12345"), "Must contain short trace ID");
+
+        System.out.println("  ✓ testTelemetryCardDynamicBoxWidth passed");
     }
 
     private static String stripAnsi(String s) {

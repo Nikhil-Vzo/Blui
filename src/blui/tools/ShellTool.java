@@ -46,36 +46,50 @@ public final class ShellTool implements Tool
               pb.redirectErrorStream(true);
               process = pb.start();
 
-              //Read output while process executes to prevent pipe buffer deadlock
-
               StringBuilder output = new StringBuilder();
-              try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream())))
-              {
-                  String line;
-                  while ((line = reader.readLine()) !=null) {
-                      if(!output.isEmpty()) {
-                          output.append(System.lineSeparator());
+              final Process runningProcess = process;
+              Thread outputDrainer = Thread.ofVirtual().start(() -> {
+                  try (BufferedReader reader = new BufferedReader(new InputStreamReader(runningProcess.getInputStream()))) {
+                      String line;
+                      while ((line = reader.readLine()) != null) {
+                          synchronized (output) {
+                              if (!output.isEmpty()) {
+                                  output.append(System.lineSeparator());
+                              }
+                              if (output.length() < 1_000_000) {
+                                  output.append(line);
+                              }
+                          }
                       }
-                       output.append(line);
-                  }
-              }
+                  } catch (Exception ignored) {}
+              });
 
               boolean finished = process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS);
-             if (!finished){
-                 process.destroyForcibly();
-                 long duration = System.currentTimeMillis() - start;
-                 return new ToolResults(
-                  name(),
-                  "error: Command timed out after" + timeout.toMillis()+ "ms",
-                  false,
-                  duration
-                 );             }
+              if (!finished) {
+                  process.destroyForcibly();
+                  outputDrainer.interrupt();
+                  long duration = System.currentTimeMillis() - start;
+                  return new ToolResults(
+                      name(),
+                      "Error: Command timed out after " + timeout.toMillis() + "ms",
+                      false,
+                      duration
+                  );
+              }
 
-            int exitCode = process.exitValue();
-            long duration = System.currentTimeMillis() - start;
-            boolean success = (exitCode == 0);
+              try {
+                  outputDrainer.join(Duration.ofMillis(500));
+              } catch (InterruptedException ignored) {}
 
-            return new ToolResults(name(), output.toString(), success, duration);
+              int exitCode = process.exitValue();
+              long duration = System.currentTimeMillis() - start;
+              boolean success = (exitCode == 0);
+
+              String resultOutput;
+              synchronized (output) {
+                  resultOutput = output.toString();
+              }
+              return new ToolResults(name(), resultOutput, success, duration);
  }
 catch (Exception e)
 {

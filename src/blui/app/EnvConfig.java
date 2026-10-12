@@ -178,9 +178,15 @@ public final class EnvConfig {
             for (String line : lines) {
                 String trimmed = line.trim();
                 if (trimmed.isEmpty() || trimmed.startsWith("#")) continue;
+                if (trimmed.toLowerCase().startsWith("export ")) {
+                    trimmed = trimmed.substring(7).trim();
+                }
                 int eq = trimmed.indexOf('=');
                 if (eq > 0) {
                     String k = trimmed.substring(0, eq).trim();
+                    if (k.toLowerCase().startsWith("export ")) {
+                        k = k.substring(7).trim();
+                    }
                     String v = trimmed.substring(eq + 1).trim();
                     if ((v.startsWith("\"") && v.endsWith("\"")) || (v.startsWith("'") && v.endsWith("'"))) {
                         if (v.length() >= 2) {
@@ -229,18 +235,19 @@ public final class EnvConfig {
      * Updates or sets a single variable in the specified .env file path.
      */
     public static void saveVar(Path path, String key, String val) throws IOException {
+        String cleanKey = (key != null && key.toLowerCase().startsWith("export ")) ? key.substring(7).trim() : key;
         Map<String, String> current = load(path);
         if (val == null || val.isBlank() || "clear".equalsIgnoreCase(val.trim())) {
-            current.remove(key);
+            current.remove(cleanKey);
         } else {
             String newVal = cleanSecret(val);
-            if ("OPENROUTER_MODEL".equals(key)) {
+            if ("OPENROUTER_MODEL".equals(cleanKey)) {
                 String apiKey = current.get("OPENROUTER_API_KEY");
                 if (isCorruptModel(newVal, apiKey)) {
                     newVal = DEFAULT_OPENROUTER_MODEL;
                 }
             }
-            current.put(key, newVal);
+            current.put(cleanKey, newVal);
         }
         save(path, current);
     }
