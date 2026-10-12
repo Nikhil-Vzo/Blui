@@ -8,10 +8,9 @@
 
 [![Release](https://img.shields.io/badge/release-v0.1.0--alpha-success?style=for-the-badge)](https://github.com/Nikhil-Vzo/Blui/releases)
 [![JDK](https://img.shields.io/badge/JDK-24%2B_LTS-blue?style=for-the-badge&logo=openjdk)](https://openjdk.org)
-[![Jar Size](https://img.shields.io/badge/standalone_jar-201_KB-f59e0b?style=for-the-badge)](https://github.com/Nikhil-Vzo/Blui)
+[![Jar Size](https://img.shields.io/badge/standalone_jar-63_KB-f59e0b?style=for-the-badge)](https://github.com/Nikhil-Vzo/Blui)
 [![Zero Dependencies](https://img.shields.io/badge/dependencies-0_(Standard_Lib)-brightgreen?style=for-the-badge)](https://github.com/Nikhil-Vzo/Blui)
 [![Concurrency](https://img.shields.io/badge/concurrency-virtual_threads-purple?style=for-the-badge)](https://github.com/Nikhil-Vzo/Blui)
-[![Tests](https://img.shields.io/badge/tests-72%2F72_passing-brightgreen?style=for-the-badge)](https://github.com/Nikhil-Vzo/Blui)
 [![License](https://img.shields.io/badge/license-Apache_2.0-lightgrey?style=for-the-badge)](LICENSE)
 
 <br/>
@@ -33,7 +32,7 @@ Most modern agent frameworks come wrapped in 50+ transitive dependencies, massiv
 
 **Blui treats agent execution as an operating system problem:** deterministic state transitions, virtual-thread concurrency, strict runtime sandboxing, atomic financial governors, and black-box flight recording.
 
-The entire engine builds into a **201 KB standalone executable JAR** with **zero external dependencies**. No LangChain, no Spring, no Jackson. Just pure standard library.
+The entire engine builds into a **63 KB standalone executable JAR** with **zero external dependencies**. No LangChain, no Spring, no Jackson. Just pure standard library.
 
 ---
 
@@ -42,7 +41,7 @@ The entire engine builds into a **201 KB standalone executable JAR** with **zero
 | Dimension | Legacy Python Stacks | Enterprise Frameworks (LangChain4j / Spring AI) | **Blui (Java 24)** |
 | :--- | :--- | :--- | :--- |
 | **Concurrency Model** | Single-threaded `asyncio` event loops | Platform thread pools (carrier exhaustion) | **Project Loom Virtual Threads (`Thread.ofVirtual()`)** |
-| **Runtime Footprint** | Dozens of brittle `pip` packages | 40MB–80MB+ fat JAR with 50+ transitive JARs | **201 KB Standalone JAR (Zero external dependencies)** |
+| **Runtime Footprint** | Dozens of brittle `pip` packages | 40MB–80MB+ fat JAR with 50+ transitive JARs | **63 KB Standalone JAR (Zero external dependencies)** |
 | **State Integrity** | Mutable Python dicts (`dict[str, Any]`) | Heavy OOP boilerplate & reflection | **Sealed Type Hierarchies & Immutable Records (`AgentState`)** |
 | **Safety Guardrails** | Manual timeouts & unmonitored loops | Complex interceptor chains | **Native Governor (Atomic token budget & cycle breaker)** |
 | **Tool Sandbox** | Unchecked dynamic execution | Basic wrappers | **Isolated Subprocess Shell, Canonical Symlink Guard & SSRF Defense** |
@@ -62,7 +61,7 @@ The entire engine builds into a **201 KB standalone executable JAR** with **zero
 No build tools, Maven, or Gradle required. Download and run directly:
 
 ```bash
-# Run the 201 KB standalone executable
+# Run the 63 KB standalone executable
 java -jar blui.jar
 ```
 
@@ -172,34 +171,6 @@ Every agent run is automatically recorded as an immutable JSON ledger in `.blui/
                             │ ShellTool, FileTool │               │ persistence (.blui) │
                             │ & HttpTool          │               │ & time-travel debug │
                             └─────────────────────┘               └─────────────────────┘
-```
-
----
-
-## 🧪 Verification & Test Suite (72/72 Tests Passing)
-
-Blui includes standalone, zero-dependency test suites verifying every concurrency, security, and runtime guarantee:
-
-```powershell
-# Compile and run full verification suite
-javac -d bin (Get-ChildItem -Recurse -Filter "*.java" src,test | Select-Object -ExpandProperty FullName)
-java -cp bin blui.core.BluiEngineTest
-java -cp bin blui.replay.TraceStoreTest
-java -cp bin blui.app.EnvConfigTest
-java -cp bin blui.app.BluiCliTest
-java -cp bin blui.swarm.SwarmEngineTest
-java -cp bin blui.llm.OpenRouterClientTest
-```
-
-```text
-✓ BluiEngineTest         (11/11 passed) — Budget caps, loop cycle detection, Loom join SLAs, SSRF & symlink guards
-✓ TraceStoreTest         (3/3 passed)   — Trace persistence, flight listing, path sanitization
-✓ EnvConfigTest          (8/8 passed)   — Masked credentials, Hermes wizard, inline parsing, auto-purge
-✓ BluiCliTest            (22/22 passed) — Formatting, telemetry cards, prompt directives, dynamic synthesis
-✓ SwarmEngineTest        (20/20 passed) — Virtual thread join SLAs, dynamic personas, graceful offline fallback
-✓ OpenRouterClientTest   (8/8 passed)   — Token extraction, payload serialization, multiline input parsing
-
-Total: 72/72 unit tests passing (100% pass rate)
 ```
 
 ---
