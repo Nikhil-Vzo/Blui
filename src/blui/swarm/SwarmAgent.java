@@ -207,8 +207,13 @@ public record SwarmAgent(
         if (json == null || json.isBlank()) return List.of();
         String content = json.trim();
 
+        // Strip <think>...</think> blocks if reasoning models output them
+        if (content.contains("<think>") && content.contains("</think>")) {
+            content = content.replaceAll("(?s)<think>.*?</think>", "").trim();
+        }
+
         // Strip markdown code fences if present
-        if (content.contains("```")) {
+        while (content.contains("```")) {
             int firstFence = content.indexOf("```");
             int secondFence = content.indexOf("```", firstFence + 3);
             if (secondFence != -1) {
@@ -217,8 +222,10 @@ public record SwarmAgent(
                     inside = inside.substring(4).trim();
                 }
                 content = inside;
+                break;
             } else {
                 content = content.replace("```json", "").replace("```", "").trim();
+                break;
             }
         }
 

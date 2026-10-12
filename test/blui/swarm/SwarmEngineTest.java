@@ -33,8 +33,9 @@ public class SwarmEngineTest {
         testSynthesizeDynamicPersonasNullProviderFallback();
         testSynthesizeDynamicPersonasFailureFallback();
         testSynthesizeDynamicPersonasMalformedJsonFallback();
+        testSynthesizeDynamicPersonasWithThinkingTags();
 
-        System.out.println("All 19 SwarmEngine tests passed successfully!");
+        System.out.println("All 20 SwarmEngine tests passed successfully!");
     }
 
     private static void testAmbiguousGoalRejection() {
@@ -572,6 +573,61 @@ public class SwarmEngineTest {
                 "Fallback must return security catalog personas");
 
         System.out.println("  ✓ testSynthesizeDynamicPersonasMalformedJsonFallback passed");
+    }
+
+    private static void testSynthesizeDynamicPersonasWithThinkingTags() {
+        LlmProvider thinkingProvider = new LlmProvider() {
+            @Override
+            public String modelName() {
+                return "deepseek-r1-reasoner";
+            }
+
+            @Override
+            public LlmResponse generate(List<Message> conversation) {
+                String responseText = """
+                    <think>
+                    Thinking about personas for cryptography and secrets management...
+                    Let's create 4 specialized agents.
+                    </think>
+                    ```json
+                    [
+                      {
+                        "name": "KeyDerivationAuditor",
+                        "role": "KDF and Entropy",
+                        "specialty": "Argon2id, PBKDF2 salt entropy, timing attacks",
+                        "directives": "Validate salt randomness and iteration count"
+                      },
+                      {
+                        "name": "SecretZeroizationInspector",
+                        "role": "Ephemeral Key Zeroization",
+                        "specialty": "DirectByteBuffer cleanup, GC memory leak vectors",
+                        "directives": "Ensure char[] / byte[] overwritten before GC"
+                      },
+                      {
+                        "name": "VaultRotationEngineer",
+                        "role": "Dynamic Secret Leases",
+                        "specialty": "Vault engine integration, lease expiration",
+                        "directives": "Audit automated rotation cycles"
+                      },
+                      {
+                        "name": "TpmHardwareAttestationAuditor",
+                        "role": "Hardware Root of Trust",
+                        "specialty": "TPM 2.0 PCR registers, enclave isolation",
+                        "directives": "Verify hardware quote signatures"
+                      }
+                    ]
+                    ```
+                    """;
+                return new LlmResponse(responseText, null, null, 150, 220);
+            }
+        };
+
+        List<SwarmAgent> personas = SwarmEngine.synthesizeDynamicPersonas(thinkingProvider, "audit crypto secret storage", false);
+        assertCondition(personas.size() == 4, "Must parse 4 personas despite <think> tags");
+        assertCondition(personas.stream().anyMatch(p -> p.name().equals("KeyDerivationAuditor")), "Must contain KeyDerivationAuditor");
+        assertCondition(personas.stream().anyMatch(p -> p.name().equals("SecretZeroizationInspector")), "Must contain SecretZeroizationInspector");
+
+        System.out.println("  ✓ testSynthesizeDynamicPersonasWithThinkingTags passed");
     }
 
     private static void assertCondition(boolean condition, String message) {
