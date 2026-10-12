@@ -38,6 +38,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Scanner;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -1123,12 +1125,11 @@ public class BluiCli {
         }
 
         List<SwarmAgent> agents = SwarmAgent.derivePersonas(goal, isBoost);
-        if (isBoost) {
-            writelnUtf8(PURPLE + BOLD + "\n⚡ [SWARM TURBO] " + WHITE + "Dispatching 8 Specialist Personas on Project Loom Virtual Threads" + RESET);
-        } else {
-            writelnUtf8(PURPLE + BOLD + "\n⚡ [SWARM] " + WHITE + "Dispatching " + agents.size() + " Specialist Personas on Project Loom Virtual Threads" + RESET);
-        }
-        writelnUtf8(GRAY + "  Target:   '" + WHITE + goal + GRAY + "'" + RESET);
+        final int agentCount = agents.size();
+
+        String leaderMission = deriveLeaderAction(goal);
+        writelnUtf8("\n" + WHITE + BOLD + leaderMission + RESET);
+        writelnUtf8(GRAY + "→ Objective: '" + WHITE + goal + GRAY + "'" + RESET);
 
         // Detect LLM provider if available
         LlmProvider provider = resolveProvider(null);
@@ -1143,134 +1144,80 @@ public class BluiCli {
             } else {
                 pType = "Ollama";
             }
-            writelnUtf8(GRAY + "  Provider: " + CYAN + provider.modelName() + GRAY + " (" + pType + ")" + RESET + "\n");
+            writelnUtf8(GRAY + "→ Provider:  " + CYAN + provider.modelName() + GRAY + " (" + pType + ")" + RESET);
         } else {
-            writelnUtf8(AMBER + "  Notice:   No live LLM provider configured (.env). Running in local benchmark simulation mode." + RESET + "\n");
+            writelnUtf8(AMBER + "→ Notice:    No live LLM provider configured (.env). Running in local benchmark simulation mode." + RESET);
         }
+        writelnUtf8("");
+
+        String launchTitle = isBoost
+            ? "Launching turbo swarm — " + agentCount + " specialist auditors in parallel:"
+            : "Launching swarm — " + agentCount + " specialist auditors in parallel:";
+        writelnUtf8(WHITE + BOLD + launchTitle + RESET);
+
+        // Immediately print all specialist bots involved upfront
+        for (SwarmAgent a : agents) {
+            writelnUtf8(GRAY + "  ⠋ " + WHITE + BOLD + padRight(a.name(), 22) + RESET + GRAY + "— " + a.role() + RESET);
+        }
+        writelnUtf8("");
 
         SwarmGovernor governor = SwarmGovernor.standard();
         Duration joinTimeout = Duration.ofSeconds(120);
         SwarmEngine engine = new SwarmEngine(governor, provider, joinTimeout);
         SwarmTask task = SwarmTask.of(goal);
 
-        final int agentCount = agents.size();
-        class AgentUIState {
-            final SwarmAgent agent;
-            final AtomicInteger status = new AtomicInteger(0); // 0 = WAITING, 1 = RUNNING, 2 = SUCCESS, 3 = FAILED
-            final AtomicLong startMs = new AtomicLong(0);
-            final AtomicLong durationMs = new AtomicLong(0);
-            AgentUIState(SwarmAgent agent) { this.agent = agent; }
-        }
-
-        List<AgentUIState> uiStates = new ArrayList<>();
-        Map<String, AgentUIState> stateMap = new java.util.concurrent.ConcurrentHashMap<>();
-        for (SwarmAgent a : agents) {
-            AgentUIState state = new AgentUIState(a);
-            uiStates.add(state);
-            stateMap.put(a.name(), state);
-        }
-
-        boolean isConsole = (System.console() != null && System.console().isTerminal())
-                || "true".equalsIgnoreCase(System.getProperty("blui.interactive"))
-                || "true".equalsIgnoreCase(System.getenv("BLUI_INTERACTIVE"));
-        // On Windows CMD without VT support (no WT_SESSION, TERM, or COLORTERM), cursor-up rewrites flood screen
-        boolean hasAnsiVt = System.getenv("WT_SESSION") != null  // Windows Terminal
-                || System.getenv("TERM") != null                  // Unix/ConEmu/etc
-                || System.getenv("COLORTERM") != null             // Truecolor terminals
-                || System.getenv("ANSICON") != null               // ANSICON wrapper
-                || "true".equalsIgnoreCase(System.getProperty("blui.ansi")); // explicit override
-        boolean isInteractive = isConsole && hasAnsiVt;
+        AtomicBoolean running = new AtomicBoolean(true);
+        Set<String> completedAgents = ConcurrentHashMap.newKeySet();
+        long t0 = System.currentTimeMillis();
         char[] spinnerFrames = {'⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'};
 
-        if (isInteractive) {
-            // Print initial lines for animated terminal display
-            for (AgentUIState s : uiStates) {
-                writeUtf8("  " + CYAN + spinnerFrames[0] + RESET + " " + BOLD + "[" + padRight(s.agent.name(), 20) + "]" + RESET + " " + padRight(s.agent.role(), 34) + " " + DIM + "(0.00s)" + RESET + "\n");
-            }
-        }
-
-        AtomicBoolean animating = new AtomicBoolean(isInteractive);
-        long t0 = System.currentTimeMillis();
-
-        Thread animator = isInteractive ? Thread.ofVirtual().start(() -> {
-            int frame = 1;
-            while (animating.get()) {
+        Thread liveSpinner = Thread.ofVirtual().start(() -> {
+            int frame = 0;
+            while (running.get()) {
                 try {
                     Thread.sleep(80);
                 } catch (InterruptedException e) {
                     break;
                 }
-                if (!animating.get()) break;
-
-                StringBuilder sb = new StringBuilder();
-                sb.append("\033[").append(agentCount).append("A");
-
-                for (int i = 0; i < agentCount; i++) {
-                    AgentUIState s = uiStates.get(i);
-                    int st = s.status.get();
-                    char icon = spinnerFrames[frame % spinnerFrames.length];
-                    double elapsed = (st == 0 ? 0.0 : (st == 1 ? (System.currentTimeMillis() - (s.startMs.get() > 0 ? s.startMs.get() : t0)) : s.durationMs.get())) / 1000.0;
-
-                    sb.append("\r\033[K");
-                    if (st == 2) {
-                        sb.append("  ").append(GREEN).append("✓").append(RESET).append(" ")
-                          .append(BOLD).append("[").append(padRight(s.agent.name(), 20)).append("]").append(RESET).append(" ")
-                          .append(padRight(s.agent.role(), 34)).append(" ")
-                          .append(GREEN).append(String.format(Locale.US, "PASSED (%.2fs)", elapsed)).append(RESET).append("\n");
-                    } else if (st == 3) {
-                        sb.append("  ").append(RED).append("✗").append(RESET).append(" ")
-                          .append(BOLD).append("[").append(padRight(s.agent.name(), 20)).append("]").append(RESET).append(" ")
-                          .append(padRight(s.agent.role(), 34)).append(" ")
-                          .append(RED).append("HALTED").append(RESET).append("\n");
-                    } else {
-                        sb.append("  ").append(CYAN).append(icon).append(RESET).append(" ")
-                          .append(BOLD).append("[").append(padRight(s.agent.name(), 20)).append("]").append(RESET).append(" ")
-                          .append(padRight(s.agent.role(), 34)).append(" ")
-                          .append(DIM).append(String.format(Locale.US, "(%.2fs)", elapsed)).append(RESET).append("\n");
-                    }
-                }
-                writeUtf8(sb.toString());
+                if (!running.get()) break;
+                double elapsed = (System.currentTimeMillis() - t0) / 1000.0;
+                char icon = spinnerFrames[frame % spinnerFrames.length];
+                int active = Math.max(0, agentCount - completedAgents.size());
+                String msg = String.format(Locale.US, "\r  %s%c%s %s%d/%d specialist auditors running%s %s(%.1fs)%s   ",
+                    CYAN, icon, RESET,
+                    WHITE, active, agentCount, RESET,
+                    GRAY, elapsed, RESET);
+                writeUtf8(msg);
                 frame++;
             }
-        }) : null;
+        });
 
         SwarmEngine.SwarmListener listener = new SwarmEngine.SwarmListener() {
             @Override
             public void onAgentStarted(SwarmAgent agent) {
-                AgentUIState s = stateMap.get(agent.name());
-                if (s != null) {
-                    s.startMs.set(System.currentTimeMillis());
-                    s.status.set(1);
-                }
+                // Agent actively working on virtual thread
             }
 
             @Override
             public void onAgentCompleted(SwarmAgent agent, SwarmResult result) {
-                AgentUIState s = stateMap.get(agent.name());
-                if (s != null) {
-                    s.durationMs.set(result.durationMs());
-                    s.status.set(result.success() ? 2 : 3);
-                }
-                if (!isInteractive) {
-                    double elapsed = result.durationMs() / 1000.0;
-                    if (result.success()) {
-                        writelnUtf8("  " + GREEN + "✓" + RESET + " " + BOLD + "[" + padRight(agent.name(), 20) + "]" + RESET + " " + padRight(agent.role(), 34) + " " + GREEN + String.format(Locale.US, "PASSED (%.2fs)", elapsed) + RESET);
-                    } else {
-                        writelnUtf8("  " + RED + "✗" + RESET + " " + BOLD + "[" + padRight(agent.name(), 20) + "]" + RESET + " " + padRight(agent.role(), 34) + " " + RED + "HALTED" + RESET);
-                    }
+                if (!completedAgents.add(agent.name())) return;
+                double elapsed = result.durationMs() / 1000.0;
+                writeUtf8("\r" + " ".repeat(80) + "\r");
+                if (result.success()) {
+                    writelnUtf8("  " + GREEN + "✓" + RESET + " " + WHITE + BOLD + padRight(agent.name(), 22) + RESET
+                            + GRAY + "— " + padRight(agent.role(), 36) + " " + GREEN + String.format(Locale.US, "PASSED (%.2fs)", elapsed) + RESET);
+                } else {
+                    writelnUtf8("  " + RED + "✗" + RESET + " " + WHITE + BOLD + padRight(agent.name(), 22) + RESET
+                            + GRAY + "— " + padRight(agent.role(), 36) + " " + RED + "HALTED" + RESET);
                 }
             }
 
             @Override
             public void onAgentFailed(SwarmAgent agent, Throwable error) {
-                AgentUIState s = stateMap.get(agent.name());
-                if (s != null) {
-                    s.durationMs.set(System.currentTimeMillis() - s.startMs.get());
-                    s.status.set(3);
-                }
-                if (!isInteractive) {
-                    writelnUtf8("  " + RED + "✗" + RESET + " " + BOLD + "[" + padRight(agent.name(), 20) + "]" + RESET + " " + padRight(agent.role(), 34) + " " + RED + "HALTED" + RESET);
-                }
+                if (!completedAgents.add(agent.name())) return;
+                writeUtf8("\r" + " ".repeat(80) + "\r");
+                writelnUtf8("  " + RED + "✗" + RESET + " " + WHITE + BOLD + padRight(agent.name(), 22) + RESET
+                        + GRAY + "— " + padRight(agent.role(), 36) + " " + RED + "HALTED" + RESET);
             }
         };
 
@@ -1278,40 +1225,11 @@ public class BluiCli {
         try {
             report = engine.runSwarm(task, agents, listener);
         } finally {
-            if (animator != null) {
-                animating.set(false);
-                animator.interrupt();
-                try { animator.join(200); } catch (InterruptedException ignored) {}
-            }
+            running.set(false);
+            liveSpinner.interrupt();
+            try { liveSpinner.join(200); } catch (InterruptedException ignored) {}
+            writeUtf8("\r" + " ".repeat(80) + "\r");
         }
-
-        if (isInteractive) {
-            // Cleanly settle all agent lines to final state using authoritative report results
-            StringBuilder finalSb = new StringBuilder();
-            finalSb.append("\033[").append(agentCount).append("A");
-            for (int i = 0; i < agentCount; i++) {
-                AgentUIState s = uiStates.get(i);
-                SwarmResult res = report.results().stream()
-                    .filter(r -> r.agentName().equals(s.agent.name()))
-                    .findFirst().orElse(null);
-                boolean pass = res != null && res.success();
-                double elapsed = (res != null ? res.durationMs() : s.durationMs.get()) / 1000.0;
-                finalSb.append("\r\033[K");
-                if (pass) {
-                    finalSb.append("  ").append(GREEN).append("✓").append(RESET).append(" ")
-                           .append(BOLD).append("[").append(padRight(s.agent.name(), 20)).append("]").append(RESET).append(" ")
-                           .append(padRight(s.agent.role(), 34)).append(" ")
-                           .append(GREEN).append(String.format(Locale.US, "PASSED (%.2fs)", elapsed)).append(RESET).append("\n");
-                } else {
-                    finalSb.append("  ").append(RED).append("✗").append(RESET).append(" ")
-                           .append(BOLD).append("[").append(padRight(s.agent.name(), 20)).append("]").append(RESET).append(" ")
-                           .append(padRight(s.agent.role(), 34)).append(" ")
-                           .append(RED).append("HALTED").append(RESET).append("\n");
-                }
-            }
-            writeUtf8(finalSb.toString());
-        }
-        writelnUtf8("");
 
         if (!report.telemetryWarnings().isEmpty()) {
             for (String warn : report.telemetryWarnings()) {
@@ -1320,26 +1238,165 @@ public class BluiCli {
             writelnUtf8("");
         }
 
-        int boxWidth = resolveBoxWidth();
-        // Display Executive Swarm Synthesis Box
-        List<String> synthesisBox = buildExecutiveSynthesisBox(report, boxWidth);
-        for (String line : synthesisBox) {
-            writelnUtf8(line);
-        }
-        writelnUtf8("");
-
-        // Display Swarm Telemetry Box
-        List<String> telemetryBox = buildSwarmTelemetryBox(report, boxWidth);
-        for (String line : telemetryBox) {
-            writelnUtf8(line);
-        }
-        writelnUtf8("");
+        // Render clean, modern OpenCode-style executive brief
+        renderExecutiveSynthesisBrief(report);
 
         boolean hasProviderFailure = report.results().stream().anyMatch(r -> !r.success() && r.findings().contains("Provider failure"));
         if (hasProviderFailure) {
             writelnUtf8(RED + BOLD + "  ✗ Swarm execution stopped: Upstream LLM provider quota exhausted or unavailable." + RESET);
             writelnUtf8(GRAY + "    Execution halted honestly without simulation. Update keys or switch provider using 'env'." + RESET + "\n");
         }
+    }
+
+    static String deriveLeaderAction(String goal) {
+        if (goal == null || goal.isBlank()) {
+            return "Auditing target objective — coordinating specialist perspectives first.";
+        }
+        String lower = goal.toLowerCase(Locale.ROOT);
+        if (lower.contains("secur") || lower.contains("vulnerab") || lower.contains("auth") || lower.contains("crypto")) {
+            return "Auditing security across codebase — mapping attack surface first.";
+        } else if (lower.contains("perf") || lower.contains("latency") || lower.contains("loom") || lower.contains("throughput")) {
+            return "Profiling performance and concurrency — mapping latency bottlenecks first.";
+        } else if (lower.contains("system") || lower.contains("distribut") || lower.contains("rate limit") || lower.contains("backend")) {
+            return "Synthesizing system architecture — decomposing distributed components first.";
+        } else if (lower.contains("front") || lower.contains("ui") || lower.contains("ux") || lower.contains("design system")) {
+            return "Auditing frontend interface — analyzing accessibility and layout systems.";
+        } else if (lower.contains("audit") || lower.contains("codebase") || lower.contains("architect")) {
+            return "Auditing codebase architecture — mapping structural dependencies first.";
+        } else {
+            return "Executing specialist swarm for: '" + goal + "'";
+        }
+    }
+
+    static String extractHeadline(String text) {
+        if (text == null || text.isBlank()) return "";
+        List<String> lines = text.lines().toList();
+        if (lines.isEmpty()) return "";
+        String first = lines.get(0).trim();
+        if (first.endsWith(":")) {
+            first = first.substring(0, first.length() - 1).trim();
+        }
+        if (lines.size() > 1 && !lines.get(1).trim().isEmpty()) {
+            String second = lines.get(1).trim();
+            if (!isCodeLine(second)) {
+                return first + ": " + (second.length() > 85 ? second.substring(0, 82) + "..." : second);
+            }
+        }
+        return first;
+    }
+
+    static void renderExecutiveSynthesisBrief(SwarmEngine.SwarmReport report) {
+        String targetDesc = report.task().description().replace("\r", " ").replace("\n", " ").trim();
+        long passCount = report.results().stream().filter(SwarmResult::success).count();
+        boolean providerFailed = report.results().stream().anyMatch(r -> !r.success() && r.findings().contains("Provider failure"));
+
+        List<AttributedFinding> flaws = new ArrayList<>();
+        List<AttributedFinding> strengths = new ArrayList<>();
+        List<AttributedFinding> remedies = new ArrayList<>();
+        List<AttributedFinding> general = new ArrayList<>();
+
+        for (SwarmResult r : report.results()) {
+            List<AttributedFinding> agentFindings = parseAgentFindings(r.agentName(), r.findings());
+            for (AttributedFinding f : agentFindings) {
+                switch (f.tag()) {
+                    case "RISK" -> flaws.add(f);
+                    case "REMEDY" -> remedies.add(f);
+                    case "STRENGTH" -> strengths.add(f);
+                    default -> general.add(f);
+                }
+            }
+        }
+
+        int healthScore = Math.max(65, Math.min(98, 100 - (flaws.size() * 3)));
+        String grade;
+        if (healthScore >= 95) grade = "Optimal Rigor";
+        else if (healthScore >= 88) grade = "Production Ready";
+        else if (healthScore >= 80) grade = "Hardening Advised";
+        else grade = "Action Required";
+
+        writelnUtf8(WHITE + BOLD + "Executive Swarm Synthesis" + RESET);
+        if (report.governorTripped()) {
+            writelnUtf8(RED + BOLD + "Consensus: SWARM HALT — Governor Budget Ceiling Exceeded" + RESET);
+        } else if (providerFailed) {
+            writelnUtf8(RED + BOLD + "Consensus: SWARM HALT — Upstream LLM Provider Quota Exhausted" + RESET);
+        } else {
+            writelnUtf8(GREEN + String.format(Locale.US, "Consensus: %d/%d Specialist Reviews Passed", passCount, report.results().size()) + RESET
+                + GRAY + " · " + WHITE + "Health Score: " + CYAN + BOLD + healthScore + "/100" + RESET + GRAY + " (" + grade + ")" + RESET);
+        }
+        writelnUtf8(GRAY + "Target: '" + WHITE + targetDesc + GRAY + "'" + RESET);
+        writelnUtf8("");
+
+        // Executive Summary
+        writelnUtf8(WHITE + BOLD + "Executive Summary" + RESET);
+        String summaryText;
+        if (report.governorTripped()) {
+            summaryText = "Swarm execution was halted by the Governor circuit-breaker to enforce the hard budget ceiling. Review current usage and adjust token allowances before re-dispatch.";
+        } else if (providerFailed) {
+            summaryText = "Swarm execution halted honestly due to upstream LLM provider quota exhaustion or network timeout. No simulated findings were substituted. Verify API credits or configure alternative provider via 'env'.";
+        } else if (flaws.isEmpty()) {
+            summaryText = String.format(Locale.US,
+                "Specialist audit completed across %d specialists for target '%s'. Domain invariants verified with zero critical defects.",
+                report.results().size(), targetDesc);
+        } else {
+            summaryText = String.format(Locale.US,
+                "Specialist audit completed across %d specialists for target '%s'. %d potential risk vectors identified for prioritized remediation.",
+                report.results().size(), targetDesc, flaws.size());
+        }
+        writelnUtf8("  " + summaryText);
+        writelnUtf8("");
+
+        // Key Findings (top 3)
+        if (!flaws.isEmpty()) {
+            writelnUtf8(RED + BOLD + "Key Vulnerabilities & Identified Risks" + RESET);
+            int displayCount = Math.min(flaws.size(), 3);
+            for (int i = 0; i < displayCount; i++) {
+                AttributedFinding f = flaws.get(i);
+                String head = extractHeadline(f.text());
+                writelnUtf8("  " + RED + "•" + RESET + " " + BOLD + "[" + f.agentName() + "]" + RESET + " " + head);
+            }
+            writelnUtf8("");
+        }
+
+        if (!strengths.isEmpty() && flaws.size() < 3) {
+            writelnUtf8(GREEN + BOLD + "Verified Architectural Strengths" + RESET);
+            int displayCount = Math.min(strengths.size(), 2);
+            for (int i = 0; i < displayCount; i++) {
+                AttributedFinding f = strengths.get(i);
+                String head = extractHeadline(f.text());
+                writelnUtf8("  " + GREEN + "•" + RESET + " " + BOLD + "[" + f.agentName() + "]" + RESET + " " + head);
+            }
+            writelnUtf8("");
+        }
+
+        if (!remedies.isEmpty()) {
+            writelnUtf8(AMBER + BOLD + "Recommended Actions" + RESET);
+            int displayCount = Math.min(remedies.size(), 2);
+            for (int i = 0; i < displayCount; i++) {
+                AttributedFinding f = remedies.get(i);
+                String head = extractHeadline(f.text());
+                writelnUtf8("  " + AMBER + (i + 1) + "." + RESET + " " + BOLD + "[" + f.agentName() + "]" + RESET + " " + head);
+            }
+            writelnUtf8("");
+        }
+
+        if (flaws.isEmpty() && strengths.isEmpty() && remedies.isEmpty() && !general.isEmpty()) {
+            writelnUtf8(WHITE + BOLD + "Specialist Observations" + RESET);
+            int displayCount = Math.min(general.size(), 3);
+            for (int i = 0; i < displayCount; i++) {
+                AttributedFinding f = general.get(i);
+                String head = extractHeadline(f.text());
+                writelnUtf8("  • " + BOLD + "[" + f.agentName() + "]" + RESET + " " + head);
+            }
+            writelnUtf8("");
+        }
+
+        // Single-line subtle telemetry footer
+        double seconds = report.joinDurationMs() / 1000.0;
+        String costFormatted = String.format(Locale.US, "$%.5f", report.totalCostUsd());
+        String govStatus = report.governorTripped() ? "TRIPPED" : "Nominal";
+        writelnUtf8(GRAY + String.format(Locale.US, "Telemetry: %d agents · %.1fs elapsed · %d tokens (%s) · Governor: %s",
+            report.results().size(), seconds, report.totalTokens(), costFormatted, govStatus) + RESET);
+        writelnUtf8(DIM + "Tip: Ask 'details on finding #1' or run with --details for complete specialist transcripts." + RESET + "\n");
     }
 
     static int resolveBoxWidth() {

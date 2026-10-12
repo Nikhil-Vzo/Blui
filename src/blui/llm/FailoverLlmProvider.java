@@ -57,7 +57,9 @@ public final class FailoverLlmProvider implements LlmProvider {
                 if (i < providers.size() - 1) {
                     LlmProvider next = providers.get(i + 1);
                     String errMsg = ex.getMessage() != null && !ex.getMessage().isBlank() ? ex.getMessage() : ex.getClass().getSimpleName();
-                    System.err.println("[SWARM FAILOVER] " + current.modelName() + " unavailable (" + errMsg + "). Failing over to " + next.modelName() + "...");
+                    if ("true".equalsIgnoreCase(System.getenv("BLUI_DEBUG")) || "true".equalsIgnoreCase(System.getProperty("blui.debug"))) {
+                        System.err.println("[SWARM FAILOVER] " + current.modelName() + " unavailable (" + errMsg + "). Failing over to " + next.modelName() + "...");
+                    }
                 }
             }
         }
