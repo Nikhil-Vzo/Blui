@@ -27,8 +27,14 @@ public class SwarmEngineTest {
         testLlmProviderMockForcesSimulation();
         testWordBoundaryDomainClassification();
         testTargetScopePathResolution();
+        testSynthesizeDynamicPersonasSuccess();
+        testSynthesizeDynamicPersonasBoostMode();
+        testSynthesizeDynamicPersonasMarkdownCodeFences();
+        testSynthesizeDynamicPersonasNullProviderFallback();
+        testSynthesizeDynamicPersonasFailureFallback();
+        testSynthesizeDynamicPersonasMalformedJsonFallback();
 
-        System.out.println("All 13 SwarmEngine tests passed successfully!");
+        System.out.println("All 19 SwarmEngine tests passed successfully!");
     }
 
     private static void testAmbiguousGoalRejection() {
@@ -366,6 +372,206 @@ public class SwarmEngineTest {
         assertCondition(defaultScope.contains("Codebase Inventory under ./src"), "Default target scope must inventory ./src");
 
         System.out.println("  ✓ testTargetScopePathResolution passed");
+    }
+
+    private static void testSynthesizeDynamicPersonasSuccess() {
+        LlmProvider mockProvider = new LlmProvider() {
+            @Override
+            public String modelName() {
+                return "test-synthesis-model";
+            }
+
+            @Override
+            public LlmResponse generate(List<Message> conversation) {
+                String json = """
+                    [
+                      {
+                        "name": "DistributedCacheArchitect",
+                        "role": "Cache Topology & Eviction",
+                        "specialty": "Redis clusters, TTL skew, cache stampede mitigations",
+                        "directives": "- Verify cache coherence across read replicas\\n- Audit stampede locks"
+                      },
+                      {
+                        "name": "RaftConsensusAuditor",
+                        "role": "Consensus Invariant Verification",
+                        "specialty": "Raft leader leases, quorum heartbeats, split-brain recovery",
+                        "directives": "- Check term counters and commit index\\n- Audit asymmetric partition tolerance"
+                      },
+                      {
+                        "name": "EgressBandwidthOptimizer",
+                        "role": "Payload Compression & Serialization",
+                        "specialty": "Protobuf/gRPC encoding, zero-copy buffers, network egress limits",
+                        "directives": "- Profile serialization overhead\\n- Implement streaming frame compression"
+                      },
+                      {
+                        "name": "CircuitBreakerEngineer",
+                        "role": "Cascading Failure Prevention",
+                        "specialty": "Adaptive rate limiters, backoff jitter, sliding window error tripwires",
+                        "directives": "- Audit half-open recovery probes\\n- Validate bulkhead thread isolation"
+                      }
+                    ]
+                    """;
+                return new LlmResponse(json, null, null, 120, 180);
+            }
+        };
+
+        List<SwarmAgent> personas = SwarmEngine.synthesizeDynamicPersonas(mockProvider, "design distributed caching with raft", false);
+        assertCondition(personas.size() == 4, "Expected 4 synthesized personas, got " + personas.size());
+        assertCondition(personas.stream().anyMatch(p -> p.name().equals("DistributedCacheArchitect")), "Must contain DistributedCacheArchitect");
+        assertCondition(personas.stream().anyMatch(p -> p.name().equals("RaftConsensusAuditor")), "Must contain RaftConsensusAuditor");
+        assertCondition(personas.stream().anyMatch(p -> p.name().equals("EgressBandwidthOptimizer")), "Must contain EgressBandwidthOptimizer");
+        assertCondition(personas.stream().anyMatch(p -> p.name().equals("CircuitBreakerEngineer")), "Must contain CircuitBreakerEngineer");
+
+        SwarmAgent cacheAgent = personas.stream().filter(p -> p.name().equals("DistributedCacheArchitect")).findFirst().orElseThrow();
+        assertCondition(cacheAgent.role().equals("Cache Topology & Eviction"), "Role must match: " + cacheAgent.role());
+        assertCondition(cacheAgent.specialty().contains("Redis clusters"), "Specialty must contain Redis clusters: " + cacheAgent.specialty());
+        assertCondition(cacheAgent.systemInstruction().contains("cache coherence"), "Instruction must contain directives");
+
+        System.out.println("  ✓ testSynthesizeDynamicPersonasSuccess passed");
+    }
+
+    private static void testSynthesizeDynamicPersonasBoostMode() {
+        LlmProvider mockProvider = new LlmProvider() {
+            @Override
+            public String modelName() {
+                return "test-synthesis-model";
+            }
+
+            @Override
+            public LlmResponse generate(List<Message> conversation) {
+                // Verify conversation requests 8 personas
+                boolean requested8 = conversation.stream().anyMatch(m -> m.content().contains("exactly 8"));
+                assertCondition(requested8, "Boost mode prompt must request exactly 8 personas");
+
+                StringBuilder sb = new StringBuilder("[\n");
+                for (int i = 1; i <= 8; i++) {
+                    sb.append(String.format("""
+                      {
+                        "name": "Specialist%d",
+                        "role": "Specialist Role %d",
+                        "specialty": "Specialty domain %d",
+                        "directives": "Directives %d"
+                      }%s
+                    """, i, i, i, i, i < 8 ? "," : ""));
+                }
+                sb.append("]");
+                return new LlmResponse(sb.toString(), null, null, 200, 300);
+            }
+        };
+
+        List<SwarmAgent> personas = SwarmEngine.synthesizeDynamicPersonas(mockProvider, "deep audit of enterprise system", true);
+        assertCondition(personas.size() == 8, "Expected 8 synthesized personas in boost mode, got " + personas.size());
+        for (int i = 1; i <= 8; i++) {
+            final int idx = i;
+            assertCondition(personas.stream().anyMatch(p -> p.name().equals("Specialist" + idx)), "Missing Specialist" + idx);
+        }
+
+        System.out.println("  ✓ testSynthesizeDynamicPersonasBoostMode passed");
+    }
+
+    private static void testSynthesizeDynamicPersonasMarkdownCodeFences() {
+        LlmProvider mockProvider = new LlmProvider() {
+            @Override
+            public String modelName() {
+                return "test-fenced-model";
+            }
+
+            @Override
+            public LlmResponse generate(List<Message> conversation) {
+                String responseText = """
+                    Here is your bespoke agent decomposition:
+                    ```json
+                    [
+                      {
+                        "name": "KernelSandboxAuditor",
+                        "role": "Seccomp & Namespaces",
+                        "specialty": "Linux cgroups, eBPF filters",
+                        "directives": "Check syscall boundaries"
+                      },
+                      {
+                        "name": "TlsHandshakeOptimizer",
+                        "role": "TLS 1.3 Session Resumption",
+                        "specialty": "Cryptographic session tickets, 0-RTT",
+                        "directives": "Audit replay defense"
+                      },
+                      {
+                        "name": "ZeroAllocationBufferScanner",
+                        "role": "Off-Heap Unsafe Memory",
+                        "specialty": "DirectByteBuffer recycling",
+                        "directives": "Audit memory leaks"
+                      },
+                      {
+                        "name": "DeadlockHunter",
+                        "role": "Lock Ordering & Wait Graphs",
+                        "specialty": "ReentrantLock cycles, CAS spinning",
+                        "directives": "Inspect thread wait trees"
+                      }
+                    ]
+                    ```
+                    Hope this helps!
+                    """;
+                return new LlmResponse(responseText, null, null, 100, 150);
+            }
+        };
+
+        List<SwarmAgent> personas = SwarmEngine.synthesizeDynamicPersonas(mockProvider, "harden kernel and tls", false);
+        assertCondition(personas.size() == 4, "Expected 4 personas extracted from markdown code fences, got " + personas.size());
+        assertCondition(personas.stream().anyMatch(p -> p.name().equals("KernelSandboxAuditor")), "Must contain KernelSandboxAuditor");
+        assertCondition(personas.stream().anyMatch(p -> p.name().equals("TlsHandshakeOptimizer")), "Must contain TlsHandshakeOptimizer");
+
+        System.out.println("  ✓ testSynthesizeDynamicPersonasMarkdownCodeFences passed");
+    }
+
+    private static void testSynthesizeDynamicPersonasNullProviderFallback() {
+        List<SwarmAgent> fallbackPersonas = SwarmEngine.synthesizeDynamicPersonas(null, "design distributed rate limiter", false);
+        assertCondition(fallbackPersonas.size() == 4, "Null provider must return 4 catalog fallback personas");
+        assertCondition(fallbackPersonas.stream().anyMatch(p -> p.name().equals("SystemArchitect")), "Fallback must use deterministic catalog SystemArchitect");
+
+        List<SwarmAgent> fallbackBoost = SwarmEngine.synthesizeDynamicPersonas(null, "design distributed rate limiter", true);
+        assertCondition(fallbackBoost.size() == 8, "Null provider boost must return 8 catalog fallback personas");
+
+        System.out.println("  ✓ testSynthesizeDynamicPersonasNullProviderFallback passed");
+    }
+
+    private static void testSynthesizeDynamicPersonasFailureFallback() {
+        LlmProvider throwingProvider = new LlmProvider() {
+            @Override
+            public String modelName() {
+                return "failing-model";
+            }
+
+            @Override
+            public LlmResponse generate(List<Message> conversation) {
+                throw new RuntimeException("HTTP 504 Gateway Timeout or Provider Crash");
+            }
+        };
+
+        List<SwarmAgent> personas = SwarmEngine.synthesizeDynamicPersonas(throwingProvider, "redesign landing page UI with react", false);
+        assertCondition(personas.size() == 4, "Provider error must fall back gracefully to 4 catalog personas");
+        assertCondition(personas.stream().anyMatch(p -> p.name().equals("UiUxArchitect")), "Fallback must return frontend catalog persona UiUxArchitect");
+
+        System.out.println("  ✓ testSynthesizeDynamicPersonasFailureFallback passed");
+    }
+
+    private static void testSynthesizeDynamicPersonasMalformedJsonFallback() {
+        LlmProvider garbageProvider = new LlmProvider() {
+            @Override
+            public String modelName() {
+                return "garbage-model";
+            }
+
+            @Override
+            public LlmResponse generate(List<Message> conversation) {
+                return new LlmResponse("I'm sorry, as an AI language model I cannot parse this.", null, null, 10, 15);
+            }
+        };
+
+        List<SwarmAgent> personas = SwarmEngine.synthesizeDynamicPersonas(garbageProvider, "audit project security", false);
+        assertCondition(personas.size() == 4, "Malformed response must fall back to 4 catalog personas");
+        assertCondition(personas.stream().anyMatch(p -> p.name().equals("VulnerabilityAuditor") || p.name().equals("SecurityAuditor")),
+                "Fallback must return security catalog personas");
+
+        System.out.println("  ✓ testSynthesizeDynamicPersonasMalformedJsonFallback passed");
     }
 
     private static void assertCondition(boolean condition, String message) {

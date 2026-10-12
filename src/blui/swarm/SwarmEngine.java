@@ -78,6 +78,14 @@ public class SwarmEngine {
         return SwarmAgent.derivePersonas(goal, false);
     }
 
+    public static List<SwarmAgent> synthesizeDynamicPersonas(LlmProvider provider, String goal, boolean isBoost) {
+        return SwarmAgent.synthesizeDynamicPersonas(provider, goal, isBoost);
+    }
+
+    public static List<SwarmAgent> synthesizeDynamicPersonas(LlmProvider provider, String goal) {
+        return SwarmAgent.synthesizeDynamicPersonas(provider, goal, false);
+    }
+
     /**
      * Executes the swarm with the specified task and agent personas.
      */

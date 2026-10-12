@@ -1124,9 +1124,6 @@ public class BluiCli {
             return;
         }
 
-        List<SwarmAgent> agents = SwarmAgent.derivePersonas(goal, isBoost);
-        final int agentCount = agents.size();
-
         String leaderMission = deriveLeaderAction(goal);
         writelnUtf8("\n" + WHITE + BOLD + leaderMission + RESET);
         writelnUtf8(GRAY + "→ Objective: '" + WHITE + goal + GRAY + "'" + RESET);
@@ -1145,14 +1142,19 @@ public class BluiCli {
                 pType = "Ollama";
             }
             writelnUtf8(GRAY + "→ Provider:  " + CYAN + provider.modelName() + GRAY + " (" + pType + ")" + RESET);
+            writelnUtf8("");
+            writelnUtf8(CYAN + "Decomposing goal — synthesizing specialist personas with " + provider.modelName() + "..." + RESET);
         } else {
             writelnUtf8(AMBER + "→ Notice:    No live LLM provider configured (.env). Running in local benchmark simulation mode." + RESET);
+            writelnUtf8("");
         }
-        writelnUtf8("");
+
+        List<SwarmAgent> agents = SwarmEngine.synthesizeDynamicPersonas(provider, goal, isBoost);
+        final int agentCount = agents.size();
 
         String launchTitle = isBoost
-            ? "Launching turbo swarm — " + agentCount + " specialist auditors in parallel:"
-            : "Launching swarm — " + agentCount + " specialist auditors in parallel:";
+            ? "Launching turbo swarm — " + agentCount + " bespoke specialists synthesized in parallel:"
+            : "Launching swarm — " + agentCount + " bespoke specialists synthesized in parallel:";
         writelnUtf8(WHITE + BOLD + launchTitle + RESET);
 
         // Immediately print all specialist bots involved upfront

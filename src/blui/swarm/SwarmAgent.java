@@ -1,9 +1,16 @@
 package blui.swarm;
 
+import blui.llm.LlmProvider;
+import blui.llm.MinimalJson;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 
 /**
@@ -126,6 +133,180 @@ public record SwarmAgent(
             case CODE_AUDIT -> deriveCodeAuditPersonas(goal, boost);
             case GENERAL -> deriveGeneralPersonas(goal, boost);
         };
+    }
+
+    public static List<SwarmAgent> synthesizeDynamicPersonas(LlmProvider provider, String goal) {
+        return synthesizeDynamicPersonas(provider, goal, false);
+    }
+
+    public static List<SwarmAgent> synthesizeDynamicPersonas(LlmProvider provider, String goal, boolean isBoost) {
+        if (provider == null) {
+            return derivePersonas(goal, isBoost);
+        }
+
+        try {
+            int targetCount = isBoost ? 8 : 4;
+            String systemPrompt = "You are a principal systems engineer decomposing complex objectives into bespoke autonomous specialist agent personas.";
+            String userPrompt = String.format(Locale.US,
+                """
+                Decompose the following engineering objective into exactly %d bespoke, highly specialized engineering personas.
+                Each persona must represent a deep domain specialist tailored specifically to analyze, audit, or implement aspects of this objective.
+
+                Objective: "%s"
+
+                Respond with ONLY a raw JSON array of %d objects. Do not include markdown formatting or conversational commentary.
+                Each object must have the following keys:
+                - "name": CamelCase identifier for the specialist (e.g. "CacheInvalidationSpecialist", "SandboxEscapeAuditor")
+                - "role": concise technical focus / title (e.g. "Distributed Cache Consistency", "Kernel Process Isolation")
+                - "specialty": specific technical domain, tools, and failure modes covered
+                - "directives": specific technical review directives or instructions for this persona
+
+                Format:
+                [
+                  {
+                    "name": "...",
+                    "role": "...",
+                    "specialty": "...",
+                    "directives": "..."
+                  }
+                ]
+                """.stripIndent().trim(),
+                targetCount, goal, targetCount
+            );
+
+            List<LlmProvider.Message> conversation = List.of(
+                new LlmProvider.Message("system", systemPrompt),
+                new LlmProvider.Message("user", userPrompt)
+            );
+
+            LlmProvider.LlmResponse response;
+            try (ExecutorService singleExec = Executors.newSingleThreadExecutor(Thread.ofVirtual().factory())) {
+                Future<LlmProvider.LlmResponse> future = singleExec.submit(() -> provider.generate(conversation));
+                response = future.get(25, TimeUnit.SECONDS);
+            }
+
+            if (response == null || response.content() == null || response.content().isBlank()) {
+                return derivePersonas(goal, isBoost);
+            }
+
+            List<SwarmAgent> parsed = parsePersonasFromJson(response.content(), goal);
+            if (parsed.isEmpty()) {
+                return derivePersonas(goal, isBoost);
+            }
+
+            if (parsed.size() > targetCount) {
+                return new ArrayList<>(parsed.subList(0, targetCount));
+            }
+            return parsed;
+        } catch (Throwable t) {
+            return derivePersonas(goal, isBoost);
+        }
+    }
+
+    public static List<SwarmAgent> parsePersonasFromJson(String json, String goal) {
+        if (json == null || json.isBlank()) return List.of();
+        String content = json.trim();
+
+        // Strip markdown code fences if present
+        if (content.contains("```")) {
+            int firstFence = content.indexOf("```");
+            int secondFence = content.indexOf("```", firstFence + 3);
+            if (secondFence != -1) {
+                String inside = content.substring(firstFence + 3, secondFence).trim();
+                if (inside.startsWith("json")) {
+                    inside = inside.substring(4).trim();
+                }
+                content = inside;
+            } else {
+                content = content.replace("```json", "").replace("```", "").trim();
+            }
+        }
+
+        int arrayStart = content.indexOf('[');
+        int arrayEnd = content.lastIndexOf(']');
+        if (arrayStart == -1 || arrayEnd <= arrayStart) {
+            return List.of();
+        }
+        String arrayBody = content.substring(arrayStart + 1, arrayEnd);
+
+        List<SwarmAgent> agents = new ArrayList<>();
+        int depth = 0;
+        boolean inString = false;
+        boolean escaped = false;
+        int objStart = -1;
+
+        for (int i = 0; i < arrayBody.length(); i++) {
+            char c = arrayBody.charAt(i);
+            if (escaped) {
+                escaped = false;
+                continue;
+            }
+            if (c == '\\') {
+                escaped = true;
+                continue;
+            }
+            if (c == '"') {
+                inString = !inString;
+                continue;
+            }
+            if (!inString) {
+                if (c == '{') {
+                    if (depth == 0) {
+                        objStart = i;
+                    }
+                    depth++;
+                } else if (c == '}') {
+                    depth--;
+                    if (depth == 0 && objStart != -1) {
+                        String objJson = arrayBody.substring(objStart, i + 1);
+                        SwarmAgent agent = parseAgentObject(objJson, goal, agents.size() + 1);
+                        if (agent != null) {
+                            agents.add(agent);
+                        }
+                        objStart = -1;
+                    }
+                }
+            }
+        }
+        return agents;
+    }
+
+    private static SwarmAgent parseAgentObject(String objJson, String goal, int index) {
+        String name = MinimalJson.extractString(objJson, "name");
+        String role = MinimalJson.extractString(objJson, "role");
+        String specialty = MinimalJson.extractString(objJson, "specialty");
+        String directives = MinimalJson.extractString(objJson, "directives");
+        if (directives == null || directives.isBlank()) {
+            directives = MinimalJson.extractString(objJson, "systemInstruction");
+        }
+        if (directives == null || directives.isBlank()) {
+            directives = MinimalJson.extractString(objJson, "instructions");
+        }
+        if (directives == null || directives.isBlank()) {
+            directives = MinimalJson.extractString(objJson, "instruction");
+        }
+
+        if (name == null || name.isBlank()) {
+            name = "Specialist" + index;
+        } else {
+            name = name.replaceAll("[^a-zA-Z0-9_]", "");
+            if (name.isBlank()) name = "Specialist" + index;
+        }
+
+        if (role == null || role.isBlank()) {
+            role = "Specialized Analysis & Verification";
+        }
+        if (specialty == null || specialty.isBlank()) {
+            specialty = "Target domain inspection for " + (goal != null ? goal : "objective");
+        }
+        if (directives == null || directives.isBlank()) {
+            directives = "- Conduct detailed technical inspection of target objective.\\n- Validate edge cases, invariants, and failure modes.";
+        }
+
+        if (directives.startsWith("You are the ") && directives.contains("[RISK]")) {
+            return new SwarmAgent(name, role, specialty, directives);
+        }
+        return createAgent(name, role, specialty, goal != null ? goal : "objective", directives);
     }
 
     private static SwarmAgent createAgent(String name, String role, String specialty, String goal, String domainDirectives) {
