@@ -350,6 +350,9 @@ public class BluiCli {
         writelnUtf8(BOLD + "\nAvailable Commands:" + RESET);
         writelnUtf8("  " + CYAN + "run <goal>" + RESET + "            - Execute an agent loop with Governor and Loom");
         writelnUtf8("  " + CYAN + "swarm <goal>" + RESET + "          - Execute parallel multi-agent swarm on virtual threads");
+        writelnUtf8("    " + GRAY + "• blui swarm <goal>        — 4-agent parallel swarm (normal)" + RESET);
+        writelnUtf8("    " + GRAY + "• blui swarm boost <goal>  — 8-agent turbo swarm" + RESET);
+        writelnUtf8("    " + GRAY + "• blui swarm \"audit ./src\" — audit mode" + RESET);
         writelnUtf8("  " + CYAN + "env [openrouter|gemini|ollama]" + RESET + " - Configure provider environment (Hermes-style 'k' to keep)");
         writelnUtf8("  " + CYAN + "set env <KEY>=<VAL>" + RESET + "   - Set specific variable inline in .env");
         writelnUtf8("  " + CYAN + "env show" + RESET + "              - Display current .env configuration");
@@ -420,14 +423,17 @@ public class BluiCli {
         return cleaned;
     }
 
-    static LlmProvider resolveProviderForTesting() {
+    public static LlmProvider resolveProviderForTesting() {
         return resolveProvider(null);
     }
 
     private static LlmProvider resolveProvider(Scanner scanner) {
         String providerPref = EnvConfig.get("LLM_PROVIDER");
-        if ("mock".equalsIgnoreCase(providerPref) || "offline".equalsIgnoreCase(providerPref) || "none".equalsIgnoreCase(providerPref)) {
-            return null;
+        if (providerPref != null) {
+            String pClean = providerPref.trim().replace("\"", "").replace("'", "");
+            if ("mock".equalsIgnoreCase(pClean) || "offline".equalsIgnoreCase(pClean) || "none".equalsIgnoreCase(pClean) || "simulation".equalsIgnoreCase(pClean)) {
+                return null;
+            }
         }
         List<LlmProvider> available = new ArrayList<>();
 
@@ -1119,7 +1125,7 @@ public class BluiCli {
         }
 
         SwarmGovernor governor = SwarmGovernor.standard();
-        Duration joinTimeout = Duration.ofSeconds(60);
+        Duration joinTimeout = Duration.ofSeconds(120);
         SwarmEngine engine = new SwarmEngine(governor, provider, joinTimeout);
         SwarmTask task = SwarmTask.of(goal);
 

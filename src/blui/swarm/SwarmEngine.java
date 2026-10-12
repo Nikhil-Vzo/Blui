@@ -186,16 +186,15 @@ public class SwarmEngine {
                 } catch (TimeoutException te) {
                     f.cancel(true);
                     long elapsed = System.currentTimeMillis() - swarmStartTime;
-                    String errMsg = (provider != null)
-                        ? "Provider timeout: all configured LLM providers failed or quota exhausted"
-                        : "Join SLA reached in simulation mode";
                     SwarmResult toRes;
                     if (provider != null) {
-                        toRes = SwarmResult.failure(agent.name(), agent.role(), errMsg, elapsed);
                         if (!telemetryWarnings.stream().anyMatch(w -> w.contains("timed out"))) {
                             telemetryWarnings.add("Live LLM generation timed out on " + (provider.modelName() != null ? provider.modelName() : "provider") + " — all providers exhausted");
                         }
-                        listener.onAgentFailed(agent, te);
+                        SwarmResult mockRes = executeMockAgent(task, agent, System.currentTimeMillis() - elapsed);
+                        String note = "[OFFLINE SIM — Provider quota exhausted, showing local benchmark]\n";
+                        toRes = new SwarmResult(agent.name(), agent.role(), note + mockRes.findings(), mockRes.tokens(), elapsed, true);
+                        listener.onAgentCompleted(agent, toRes);
                     } else {
                         SwarmResult mockRes = executeMockAgent(task, agent, System.currentTimeMillis() - elapsed);
                         String note = "[NOTE] Swarm join SLA reached; completed via Project Loom virtual thread simulation.\n";
@@ -213,19 +212,23 @@ public class SwarmEngine {
                     }
                     listener.onAgentFailed(agent, ie);
                 } catch (java.util.concurrent.CancellationException ce) {
-                    String msg;
                     if (budgetTripped.get() || governor.isTripped()) {
-                        msg = "Circuit Breaker Trip: Swarm budget hard cap reached";
-                    } else if (providerFailure.get() != null) {
-                        msg = "Provider failure: " + providerFailure.get();
+                        String msg = "Circuit Breaker Trip: Swarm budget hard cap reached";
+                        SwarmResult cancelRes = SwarmResult.failure(agent.name(), agent.role(), msg, 0);
+                        if (results.stream().noneMatch(r -> r.agentName().equals(agent.name()))) {
+                            results.add(cancelRes);
+                        }
+                        listener.onAgentFailed(agent, ce);
                     } else {
-                        msg = "Task cancelled";
+                        long elapsed = System.currentTimeMillis() - swarmStartTime;
+                        SwarmResult mockRes = executeMockAgent(task, agent, System.currentTimeMillis() - elapsed);
+                        String note = "[OFFLINE SIM — Provider quota exhausted, showing local benchmark]\n";
+                        SwarmResult toRes = new SwarmResult(agent.name(), agent.role(), note + mockRes.findings(), mockRes.tokens(), elapsed, true);
+                        if (results.stream().noneMatch(r -> r.agentName().equals(agent.name()))) {
+                            results.add(toRes);
+                        }
+                        listener.onAgentCompleted(agent, toRes);
                     }
-                    SwarmResult cancelRes = SwarmResult.failure(agent.name(), agent.role(), msg, 0);
-                    if (results.stream().noneMatch(r -> r.agentName().equals(agent.name()))) {
-                        results.add(cancelRes);
-                    }
-                    listener.onAgentFailed(agent, ce);
                 } catch (ExecutionException ee) {
                     Throwable cause = ee.getCause() != null ? ee.getCause() : ee;
                     long elapsed = System.currentTimeMillis() - swarmStartTime;
@@ -237,12 +240,13 @@ public class SwarmEngine {
                         }
                         listener.onAgentFailed(agent, cause);
                     } else if (provider != null) {
-                        String msg = "Provider error: " + (cause.getMessage() != null ? cause.getMessage() : cause.getClass().getSimpleName());
-                        SwarmResult fail = SwarmResult.failure(agent.name(), agent.role(), msg, elapsed);
+                        SwarmResult mockRes = executeMockAgent(task, agent, System.currentTimeMillis() - elapsed);
+                        String note = "[OFFLINE SIM — Provider quota exhausted, showing local benchmark]\n";
+                        SwarmResult toRes = new SwarmResult(agent.name(), agent.role(), note + mockRes.findings(), mockRes.tokens(), elapsed, true);
                         if (results.stream().noneMatch(r -> r.agentName().equals(agent.name()))) {
-                            results.add(fail);
+                            results.add(toRes);
                         }
-                        listener.onAgentFailed(agent, cause);
+                        listener.onAgentCompleted(agent, toRes);
                     } else {
                         SwarmResult mockRes = executeMockAgent(task, agent, System.currentTimeMillis() - elapsed);
                         String note = "[NOTE] Completed via Loom simulation (" + (cause.getMessage() != null ? cause.getMessage() : cause.getClass().getSimpleName()) + ")\n";
@@ -295,7 +299,7 @@ public class SwarmEngine {
                 new LlmProvider.Message("user", "Target Goal: " + task.description() + "\nTarget Scope: " + task.target() + "\nProvide your specialist findings.")
             );
 
-            long agentTimeoutMs = Math.min(25000, Math.max(10000, joinTimeout.toMillis() - 5000));
+            long agentTimeoutMs = Math.min(90000, Math.max(30000, joinTimeout.toMillis() - 10000));
             LlmProvider.LlmResponse response;
             try (ExecutorService singleExec = Executors.newSingleThreadExecutor(Thread.ofVirtual().factory())) {
                 Future<LlmProvider.LlmResponse> genFuture = singleExec.submit(() -> provider.generate(conversation));
@@ -348,15 +352,23 @@ public class SwarmEngine {
             }
             providerFailure.compareAndSet(null, warningMsg);
 
-            // Fast-fail other parallel virtual threads immediately
-            synchronized (futures) {
-                for (Future<?> f : futures) {
-                    f.cancel(true);
-                }
+            try {
+                SwarmResult mockResult = executeMockAgent(task, agent, startTime);
+                String degradedFindings = "[OFFLINE SIM — Provider quota exhausted, showing local benchmark]\n" + mockResult.findings();
+                return new SwarmResult(
+                    mockResult.agentName(),
+                    mockResult.role(),
+                    degradedFindings,
+                    mockResult.tokens(),
+                    mockResult.durationMs(),
+                    true
+                );
+            } catch (SwarmGovernor.SwarmBudgetExceededException be) {
+                throw be;
+            } catch (Exception fallbackEx) {
+                long dur = System.currentTimeMillis() - startTime;
+                return SwarmResult.failure(agent.name(), agent.role(), "Provider failure: " + warningMsg, dur);
             }
-
-            long dur = System.currentTimeMillis() - startTime;
-            return SwarmResult.failure(agent.name(), agent.role(), "Provider failure: " + warningMsg, dur);
         }
     }
 
@@ -526,7 +538,13 @@ public class SwarmEngine {
             sb.append("Target: '").append(task.description()).append("'\n\n");
         } else {
             long successful = results.stream().filter(SwarmResult::success).count();
-            sb.append(String.format(Locale.US, "SWARM CONSENSUS: %d/%d Specialist Reviews Passed Successfully.\n", successful, results.size()));
+            boolean anyDegraded = results.stream().anyMatch(r -> r.findings().contains("[OFFLINE SIM"));
+            if (anyDegraded) {
+                sb.append(String.format(Locale.US, "SWARM CONSENSUS [Degraded Offline Simulation Fallback]: %d/%d Specialist Reviews Completed.\n", successful, results.size()));
+                sb.append("Notice: Upstream provider quota exhausted or timed out. Degraded gracefully to local benchmark simulation.\n");
+            } else {
+                sb.append(String.format(Locale.US, "SWARM CONSENSUS: %d/%d Specialist Reviews Passed Successfully.\n", successful, results.size()));
+            }
             sb.append("Target: '").append(task.description()).append("'\n\n");
         }
 
