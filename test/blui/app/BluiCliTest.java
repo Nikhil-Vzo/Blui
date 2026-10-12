@@ -34,8 +34,10 @@ public class BluiCliTest {
         testDynamicSwarmSynthesisBox();
         testSwarmInvocationRouting();
         testTelemetryCardDynamicBoxWidth();
+        testToolBadgeAndIconResolution();
+        testHttpStatusPhraseResolution();
 
-        System.out.println("All 20 BluiCli tests passed successfully!");
+        System.out.println("All 22 BluiCli tests passed successfully!");
     }
 
     private static void testCardWidthsAndAlignment() {
@@ -546,6 +548,41 @@ public class BluiCliTest {
         assertCondition(joined.contains("Trace: #12345"), "Must contain short trace ID");
 
         System.out.println("  ✓ testTelemetryCardDynamicBoxWidth passed");
+    }
+
+    private static void testToolBadgeAndIconResolution() {
+        // 1. Web Fetch (HTTP GET)
+        BluiCli.ToolBadge b1 = BluiCli.resolveToolBadge("HttpTool", "get https://news.ycombinator.com");
+        assertCondition("🌐".equals(b1.icon()), "Web fetch icon must be 🌐");
+        assertCondition(b1.label().contains("Web Fetch"), "Web fetch label must contain 'Web Fetch'");
+
+        // 2. API Call (HTTP POST / PUT / DELETE)
+        BluiCli.ToolBadge b2 = BluiCli.resolveToolBadge("HttpTool", "post https://api.github.com/repos {\"name\":\"test\"}");
+        assertCondition("📡".equals(b2.icon()), "API call icon must be 📡");
+        assertCondition(b2.label().contains("API Call"), "API call label must contain 'API Call'");
+
+        // 3. Filesystem Tool
+        BluiCli.ToolBadge b3 = BluiCli.resolveToolBadge("FileTool", "read src/blui/core/BluiEngine.java");
+        assertCondition("📁".equals(b3.icon()), "Filesystem icon must be 📁");
+        assertCondition(b3.label().contains("Filesystem"), "Filesystem label must contain 'Filesystem'");
+
+        // 4. Shell Subprocess Tool
+        BluiCli.ToolBadge b4 = BluiCli.resolveToolBadge("ShellTool", "git status");
+        assertCondition("⚙".equals(b4.icon()), "Shell icon must be ⚙");
+        assertCondition(b4.label().contains("Shell"), "Shell label must contain 'Shell'");
+
+        System.out.println("  ✓ testToolBadgeAndIconResolution passed");
+    }
+
+    private static void testHttpStatusPhraseResolution() {
+        assertCondition("OK".equals(blui.tools.HttpTool.resolveHttpStatusPhrase(200)), "200 must resolve to OK");
+        assertCondition("Created".equals(blui.tools.HttpTool.resolveHttpStatusPhrase(201)), "201 must resolve to Created");
+        assertCondition("Bad Request".equals(blui.tools.HttpTool.resolveHttpStatusPhrase(400)), "400 must resolve to Bad Request");
+        assertCondition("Unauthorized".equals(blui.tools.HttpTool.resolveHttpStatusPhrase(401)), "401 must resolve to Unauthorized");
+        assertCondition("Forbidden".equals(blui.tools.HttpTool.resolveHttpStatusPhrase(403)), "403 must resolve to Forbidden");
+        assertCondition("Not Found".equals(blui.tools.HttpTool.resolveHttpStatusPhrase(404)), "404 must resolve to Not Found");
+        assertCondition("Internal Server Error".equals(blui.tools.HttpTool.resolveHttpStatusPhrase(500)), "500 must resolve to Internal Server Error");
+        System.out.println("  ✓ testHttpStatusPhraseResolution passed");
     }
 
     private static String stripAnsi(String s) {

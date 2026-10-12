@@ -114,7 +114,8 @@ public final class HttpTool implements Tool {
                 responseBody = responseBody.substring(0, MAX_RESPONSE_CHARS) + "\n...[TRUNCATED: Response exceeded 100KB limit]";
             }
 
-            String output = String.format("HTTP %d%n%s", status, responseBody != null ? responseBody : "");
+            String statusPhrase = resolveHttpStatusPhrase(status);
+            String output = String.format("HTTP %d %s%n%s", status, statusPhrase, responseBody != null ? responseBody : "");
             return new ToolResults(name(), output, success, duration);
 
         } catch (SecurityException se) {
@@ -124,6 +125,32 @@ public final class HttpTool implements Tool {
         } catch (Exception e) {
             return new ToolResults(name(), "HTTP request failed: " + e.getMessage(), false, System.currentTimeMillis() - start);
         }
+    }
+
+    public static String resolveHttpStatusPhrase(int statusCode) {
+        return switch (statusCode) {
+            case 200 -> "OK";
+            case 201 -> "Created";
+            case 202 -> "Accepted";
+            case 204 -> "No Content";
+            case 301 -> "Moved Permanently";
+            case 302 -> "Found";
+            case 304 -> "Not Modified";
+            case 307 -> "Temporary Redirect";
+            case 308 -> "Permanent Redirect";
+            case 400 -> "Bad Request";
+            case 401 -> "Unauthorized";
+            case 403 -> "Forbidden";
+            case 404 -> "Not Found";
+            case 405 -> "Method Not Allowed";
+            case 408 -> "Request Timeout";
+            case 429 -> "Too Many Requests";
+            case 500 -> "Internal Server Error";
+            case 502 -> "Bad Gateway";
+            case 503 -> "Service Unavailable";
+            case 504 -> "Gateway Timeout";
+            default -> (statusCode >= 200 && statusCode < 300) ? "Success" : "Response";
+        };
     }
 
     public static void validateSsrf(URI uri) throws SecurityException {
