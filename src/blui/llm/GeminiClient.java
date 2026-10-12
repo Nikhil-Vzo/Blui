@@ -42,7 +42,10 @@ public final class GeminiClient implements LlmProvider {
     }
 
     private static String resolveDefaultModel() {
-        String env = System.getenv("GEMINI_MODEL");
+        String env = blui.app.EnvConfig.get("GEMINI_MODEL");
+        if (env == null || env.isBlank()) {
+            env = System.getenv("GEMINI_MODEL");
+        }
         return (env != null && !env.isBlank()) ? env.trim() : DEFAULT_MODEL;
     }
 
